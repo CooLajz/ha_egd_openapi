@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EG.D OpenAPI",
+        "description": "Zadej přístupové údaje k EG.D OpenAPI.",
+        "data": {
+          "name": "Název",
+          "ean": "EAN odběrného místa",
+          "client_id": "Client ID",
+          "client_secret": "Client Secret",
+          "import_profile": "Profil spotřeby",
+          "export_profile": "Profil přetoků",
+          "update_hour": "Hodina denní synchronizace",
+          "update_minute": "Minuta denní synchronizace"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nepodařilo se spojit s API.",
+      "invalid_auth": "Neplatné přihlašovací údaje."
+    },
+    "abort": {
+      "already_configured": "Tento EAN už je nakonfigurovaný."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EG.D OpenAPI",
+        "data": {
+          "import_profile": "Profil spotřeby",
+          "export_profile": "Profil přetoků",
+          "update_hour": "Hodina denní synchronizace",
+          "update_minute": "Minuta denní synchronizace"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_import": {
+        "name": "Celkový odběr"
+      },
+      "total_export": {
+        "name": "Celková dodávka"
+      }
+    }
+  }
+}

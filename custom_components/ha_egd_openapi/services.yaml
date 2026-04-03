@@ -1,0 +1,16 @@
+egd_remove_statistics_entity:
+  name: Remove EG.D statistics entity
+  description: Remove imported EG.D statistics and reset stored checkpoints.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Remove statistics only for one config entry.
+      required: false
+      selector:
+        text:
+    ean:
+      name: EAN
+      description: Remove statistics only for one EAN.
+      required: false
+      selector:
+        text:

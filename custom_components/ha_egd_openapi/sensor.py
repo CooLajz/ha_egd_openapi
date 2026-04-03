@@ -1,0 +1,120 @@
+"""Sensors for EG.D OpenAPI."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfEnergy
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import (
+    ATTR_EAN,
+    ATTR_LAST_API_SYNC_UTC,
+    ATTR_LAST_EXPORT_STATUS,
+    ATTR_LAST_IMPORT_STATUS,
+    ATTR_LAST_UPDATE_UTC,
+    ATTR_LAST_VALID_EXPORT_TS,
+    ATTR_LAST_VALID_IMPORT_TS,
+    CONF_EAN,
+    DOMAIN,
+)
+from .coordinator import EgdDataUpdateCoordinator
+
+
+@dataclass(frozen=True, kw_only=True)
+class EgdSensorDescription(SensorEntityDescription):
+    value_key: str
+
+
+SENSORS: tuple[EgdSensorDescription, ...] = (
+    EgdSensorDescription(
+        key="total_import",
+        translation_key="total_import",
+        name="Total import",
+        value_key="total_import_kwh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=None,
+        suggested_display_precision=3,
+    ),
+    EgdSensorDescription(
+        key="total_export",
+        translation_key="total_export",
+        name="Total export",
+        value_key="total_export_kwh",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=None,
+        suggested_display_precision=3,
+    ),
+)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    coordinator: EgdDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities([EgdEnergySensor(coordinator, entry, description) for description in SENSORS])
+
+
+class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity):
+    """EG.D cumulative energy sensor."""
+
+    entity_description: EgdSensorDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: EgdDataUpdateCoordinator,
+        entry: ConfigEntry,
+        description: EgdSensorDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+
+        ean = entry.data[CONF_EAN]
+
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, ean)},
+            "name": entry.title,
+            "manufacturer": "EG.D",
+            "model": "OpenAPI Smart Meter",
+        }
+
+    @property
+    def native_value(self) -> float | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        return getattr(data, self.entity_description.value_key)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data
+        attrs: dict[str, Any] = {ATTR_EAN: self._entry.data[CONF_EAN]}
+        if data is None:
+            return attrs
+
+        attrs[ATTR_LAST_API_SYNC_UTC] = data.last_api_sync_utc
+        attrs[ATTR_LAST_UPDATE_UTC] = data.last_update_utc
+
+        if self.entity_description.key == "total_import":
+            attrs[ATTR_LAST_VALID_IMPORT_TS] = data.last_valid_import_timestamp
+            attrs[ATTR_LAST_IMPORT_STATUS] = data.last_import_status
+        else:
+            attrs[ATTR_LAST_VALID_EXPORT_TS] = data.last_valid_export_timestamp
+            attrs[ATTR_LAST_EXPORT_STATUS] = data.last_export_status
+        return attrs
