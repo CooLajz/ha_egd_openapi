@@ -231,8 +231,10 @@ class EgdApiClient:
         page_size: int = 3000,
     ) -> list[IntervalRecord]:
         """Fetch one API chunk including paging."""
-        # EG.D documents PageStart as zero-based.
-        page_start = 0
+        # In practice EG.D pagination behaves as 1-based even though the PDF
+        # example shows PageStart=0. Using 0 can return an empty first page
+        # without an explicit API error.
+        page_start = 1
         records: list[IntervalRecord] = []
 
         while True:
