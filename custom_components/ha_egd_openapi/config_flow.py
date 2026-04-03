@@ -17,11 +17,13 @@ from .const import (
     CONF_EAN,
     CONF_EXPORT_PROFILE,
     CONF_IMPORT_PROFILE,
+    CONF_REVALIDATE_DAYS,
     CONF_UPDATE_HOUR,
     CONF_UPDATE_MINUTE,
     DEFAULT_EXPORT_PROFILE,
     DEFAULT_IMPORT_PROFILE,
     DEFAULT_NAME,
+    DEFAULT_REVALIDATE_DAYS,
     DEFAULT_UPDATE_HOUR,
     DEFAULT_UPDATE_MINUTE,
     DOMAIN,
@@ -81,6 +83,17 @@ def _build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     step=1,
                 )
             ),
+            vol.Required(
+                CONF_REVALIDATE_DAYS,
+                default=int(defaults.get(CONF_REVALIDATE_DAYS, DEFAULT_REVALIDATE_DAYS)),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1,
+                    max=365,
+                    mode=selector.NumberSelectorMode.BOX,
+                    step=1,
+                )
+            ),
         }
     )
 
@@ -107,6 +120,10 @@ def _build_options_schema(config_entry: config_entries.ConfigEntry) -> vol.Schem
             CONF_UPDATE_MINUTE: config_entry.options.get(
                 CONF_UPDATE_MINUTE,
                 config_entry.data.get(CONF_UPDATE_MINUTE, DEFAULT_UPDATE_MINUTE),
+            ),
+            CONF_REVALIDATE_DAYS: config_entry.options.get(
+                CONF_REVALIDATE_DAYS,
+                config_entry.data.get(CONF_REVALIDATE_DAYS, DEFAULT_REVALIDATE_DAYS),
             ),
         }
     )
@@ -147,6 +164,7 @@ class EgdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_EXPORT_PROFILE: user_input[CONF_EXPORT_PROFILE],
                         CONF_UPDATE_HOUR: int(user_input[CONF_UPDATE_HOUR]),
                         CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
+                        CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
                     },
                 )
 
@@ -173,6 +191,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                     CONF_EXPORT_PROFILE: user_input[CONF_EXPORT_PROFILE],
                     CONF_UPDATE_HOUR: int(user_input[CONF_UPDATE_HOUR]),
                     CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
+                    CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
                 },
             )
 
@@ -240,6 +259,24 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                         selector.NumberSelectorConfig(
                             min=0,
                             max=59,
+                            mode=selector.NumberSelectorMode.BOX,
+                            step=1,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_REVALIDATE_DAYS,
+                        default=int(
+                            self.config_entry.options.get(
+                                CONF_REVALIDATE_DAYS,
+                                self.config_entry.data.get(
+                                    CONF_REVALIDATE_DAYS, DEFAULT_REVALIDATE_DAYS
+                                ),
+                            )
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1,
+                            max=365,
                             mode=selector.NumberSelectorMode.BOX,
                             step=1,
                         )

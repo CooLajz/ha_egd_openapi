@@ -26,15 +26,15 @@ from .const import (
     CONF_EAN,
     CONF_EXPORT_PROFILE,
     CONF_IMPORT_PROFILE,
+    CONF_REVALIDATE_DAYS,
     DOMAIN,
+    DEFAULT_REVALIDATE_DAYS,
     STORE_KEY,
     STORE_VERSION,
 )
 from .statistics import async_import_external_statistics
 
 _LOGGER = logging.getLogger(__name__)
-
-QUARTER_HOUR = timedelta(minutes=15)
 
 PROFILE_MIN_DATES: dict[str, date] = {
     "ICQ2": date(2024, 7, 1),
@@ -70,6 +70,11 @@ class EnergyState:
 
 class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     """Coordinates fetching, statistics import and cumulative totals."""
+
+    _IMPORT_CACHE_KEY = "import_hourly_deltas"
+    _EXPORT_CACHE_KEY = "export_hourly_deltas"
+    _IMPORT_CACHE_COMPLETE_KEY = "import_hourly_deltas_complete"
+    _EXPORT_CACHE_COMPLETE_KEY = "export_hourly_deltas_complete"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: EgdApiClient) -> None:
         self.hass = hass
@@ -117,23 +122,17 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         import_statistic_id = f"{DOMAIN}:meter_{ean}_import"
         export_statistic_id = f"{DOMAIN}:meter_{ean}_export"
 
-        import_last = self._parse_dt(self._persisted.get(ATTR_LAST_VALID_IMPORT_TS))
-        export_last = self._parse_dt(self._persisted.get(ATTR_LAST_VALID_EXPORT_TS))
-
-        total_import = float(self._persisted.get("total_import_kwh", 0.0))
-        total_export = float(self._persisted.get("total_export_kwh", 0.0))
-
         import_from = await self._determine_start_timestamp(
             profile=import_profile,
-            last_valid=import_last,
             latest_available_utc=latest_available_utc,
-            persisted_key="earliest_import_utc",
+            cache_complete_key=self._IMPORT_CACHE_COMPLETE_KEY,
+            last_valid_key=ATTR_LAST_VALID_IMPORT_TS,
         )
         export_from = await self._determine_start_timestamp(
             profile=export_profile,
-            last_valid=export_last,
             latest_available_utc=latest_available_utc,
-            persisted_key="earliest_export_utc",
+            cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
+            last_valid_key=ATTR_LAST_VALID_EXPORT_TS,
         )
 
         import_records: list[IntervalRecord] = []
@@ -155,15 +154,32 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 to_dt=latest_available_utc,
             )
 
-        total_import, import_meta, import_stats = self._process_records_hourly(
-            current_total=total_import,
+        import_hourly, import_meta = self._process_records_hourly(
             records=import_records,
             profile=import_profile,
         )
-        total_export, export_meta, export_stats = self._process_records_hourly(
-            current_total=total_export,
+        export_hourly, export_meta = self._process_records_hourly(
             records=export_records,
             profile=export_profile,
+        )
+
+        total_import, import_stats = self._merge_statistics(
+            cache_key=self._IMPORT_CACHE_KEY,
+            cache_complete_key=self._IMPORT_CACHE_COMPLETE_KEY,
+            persisted_total_key="total_import_kwh",
+            fetched_from=import_from,
+            latest_available_utc=latest_available_utc,
+            profile=import_profile,
+            hourly_deltas=import_hourly,
+        )
+        total_export, export_stats = self._merge_statistics(
+            cache_key=self._EXPORT_CACHE_KEY,
+            cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
+            persisted_total_key="total_export_kwh",
+            fetched_from=export_from,
+            latest_available_utc=latest_available_utc,
+            profile=export_profile,
+            hourly_deltas=export_hourly,
         )
 
         if import_stats:
@@ -250,15 +266,12 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     def _process_records_hourly(
         self,
         *,
-        current_total: float,
         records: list[IntervalRecord],
         profile: str,
-    ) -> tuple[float, dict[str, Any], list[dict[str, Any]]]:
-        """Aggregate quarter-hour records to hourly cumulative rows."""
-        total = current_total
+    ) -> tuple[dict[datetime, float], dict[str, Any]]:
+        """Aggregate quarter-hour records to hourly delta rows."""
         last_status: str | None = None
         newest_valid_ts: datetime | None = None
-        rows: list[dict[str, Any]] = []
 
         hourly: dict[datetime, float] = defaultdict(float)
 
@@ -273,45 +286,148 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             hourly[hour_start] += value_kwh
             newest_valid_ts = record.timestamp
 
-        for hour_start in sorted(hourly):
-            total += hourly[hour_start]
-            total_rounded = round(total, 6)
-            rows.append(
-                {
-                    "start": hour_start,
-                    "state": total_rounded,
-                    "sum": total_rounded,
-                }
-            )
-
-        return total, {"last_valid_ts": newest_valid_ts, "last_status": last_status}, rows
+        return (
+            {hour_start: round(value, 6) for hour_start, value in hourly.items()},
+            {"last_valid_ts": newest_valid_ts, "last_status": last_status},
+        )
 
     async def _determine_start_timestamp(
         self,
         *,
         profile: str,
-        last_valid: datetime | None,
         latest_available_utc: datetime,
-        persisted_key: str,
+        cache_complete_key: str,
+        last_valid_key: str,
     ) -> datetime | None:
         """Determine where next fetch should start.
 
         Behavior:
-        - if we already know the last valid imported quarter-hour, continue from +15 min
-        - if not, use stored earliest timestamp if present
-        - otherwise start from profile hard minimum
+        - first sync (or migration without local hourly cache): fetch full history
+        - subsequent daily runs: revalidate a rolling window from the configured day offset
         """
         hard_min = self._hard_min_for_profile(profile, latest_available_utc)
+        cache_complete = bool(self._persisted.get(cache_complete_key))
+        if not cache_complete:
+            if self._parse_dt(self._persisted.get(last_valid_key)) is None:
+                return hard_min
+            return max(self._get_revalidation_start(latest_available_utc), hard_min)
 
-        if last_valid is not None:
-            next_start = last_valid + QUARTER_HOUR
-            return max(next_start, hard_min)
+        revalidation_start = self._get_revalidation_start(latest_available_utc)
+        return max(revalidation_start, hard_min)
 
-        persisted = self._parse_dt(self._persisted.get(persisted_key))
-        if persisted is not None:
-            return max(persisted, hard_min)
+    def _merge_statistics(
+        self,
+        *,
+        cache_key: str,
+        cache_complete_key: str,
+        persisted_total_key: str,
+        fetched_from: datetime | None,
+        latest_available_utc: datetime,
+        profile: str,
+        hourly_deltas: dict[datetime, float],
+    ) -> tuple[float, list[dict[str, Any]]]:
+        """Merge fetched hourly deltas into local cache and build changed rows."""
+        existing = self._load_hourly_deltas(cache_key)
+        merged = dict(existing)
+        merged.update(hourly_deltas)
 
-        return hard_min
+        latest_hour = latest_available_utc.replace(minute=0, second=0, microsecond=0)
+        window_start = (
+            fetched_from or self._hard_min_for_profile(profile, latest_available_utc)
+        ).replace(minute=0, second=0, microsecond=0)
+
+        old_sums = self._build_cumulative_sum_map(existing, window_start, latest_hour)
+        new_sums = self._build_cumulative_sum_map(merged, window_start, latest_hour)
+
+        rows = [
+            {
+                "start": hour_start,
+                "state": sum_value,
+                "sum": sum_value,
+            }
+            for hour_start, sum_value in new_sums.items()
+            if not self._numbers_equal(old_sums.get(hour_start), sum_value)
+        ]
+
+        self._persisted[cache_key] = self._serialize_hourly_deltas(merged)
+
+        hard_min = self._hard_min_for_profile(profile, latest_available_utc)
+        cache_complete = bool(self._persisted.get(cache_complete_key))
+        if fetched_from is not None and fetched_from <= hard_min:
+            self._persisted[cache_complete_key] = True
+            cache_complete = True
+
+        if cache_complete:
+            total = round(sum(merged.values()), 6)
+        else:
+            total = float(self._persisted.get(persisted_total_key, 0.0))
+        return total, rows
+
+    def _get_revalidation_start(self, latest_available_utc: datetime) -> datetime:
+        """Return start of rolling revalidation window in UTC."""
+        revalidate_days = max(
+            1,
+            int(
+                self.config_entry.options.get(
+                    CONF_REVALIDATE_DAYS,
+                    self.config_entry.data.get(CONF_REVALIDATE_DAYS, DEFAULT_REVALIDATE_DAYS),
+                )
+            ),
+        )
+        start_date = latest_available_utc.date() - timedelta(days=revalidate_days - 1)
+        return datetime.combine(start_date, time(0, 0), tzinfo=timezone.utc)
+
+    def _load_hourly_deltas(self, cache_key: str) -> dict[datetime, float]:
+        """Load cached hourly deltas from persistent storage."""
+        raw = self._persisted.get(cache_key, {})
+        if not isinstance(raw, dict):
+            return {}
+
+        deltas: dict[datetime, float] = {}
+        for timestamp, value in raw.items():
+            parsed = self._parse_dt(timestamp)
+            if parsed is None:
+                continue
+            deltas[parsed] = round(float(value), 6)
+        return deltas
+
+    def _serialize_hourly_deltas(self, deltas: dict[datetime, float]) -> dict[str, float]:
+        """Serialize cached hourly deltas for Home Assistant storage."""
+        return {
+            self._iso(timestamp): round(value, 6)
+            for timestamp, value in sorted(deltas.items())
+            if self._iso(timestamp) is not None
+        }
+
+    def _build_cumulative_sum_map(
+        self,
+        deltas: dict[datetime, float],
+        window_start: datetime,
+        latest_hour: datetime,
+    ) -> dict[datetime, float]:
+        """Build cumulative sums for a specific hourly window."""
+        cumulative = round(
+            sum(value for timestamp, value in deltas.items() if timestamp < window_start),
+            6,
+        )
+        sums: dict[datetime, float] = {}
+
+        for hour_start in sorted(
+            timestamp
+            for timestamp in deltas
+            if window_start <= timestamp <= latest_hour
+        ):
+            cumulative = round(cumulative + deltas[hour_start], 6)
+            sums[hour_start] = cumulative
+
+        return sums
+
+    @staticmethod
+    def _numbers_equal(left: float | None, right: float | None, tolerance: float = 1e-6) -> bool:
+        """Compare floats safely for recorder reimports."""
+        if left is None or right is None:
+            return left is right
+        return abs(left - right) <= tolerance
 
     def _hard_min_for_profile(self, profile: str, latest: datetime) -> datetime:
         """Return earliest allowed start for a profile."""
