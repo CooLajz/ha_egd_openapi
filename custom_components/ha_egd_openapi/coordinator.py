@@ -41,8 +41,8 @@ PROFILE_MIN_DATES: dict[str, date] = {
     "ISQ2": date(2024, 7, 1),
 }
 
-# Chování sladěné s EG.D webem
-ALLOWED_STATUSES = {"IU012", "IU020", "IU022"}
+# Návod EG.D doporučuje zapisovat jen standardně platné A/B hodnoty.
+ALLOWED_STATUSES = {"IU012"}
 
 
 def _three_years_ago_safe(dt: datetime) -> datetime:

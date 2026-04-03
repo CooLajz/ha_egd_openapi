@@ -231,7 +231,8 @@ class EgdApiClient:
         page_size: int = 3000,
     ) -> list[IntervalRecord]:
         """Fetch one API chunk including paging."""
-        page_start = 1
+        # EG.D documents PageStart as zero-based.
+        page_start = 0
         records: list[IntervalRecord] = []
 
         while True:
