@@ -8,7 +8,7 @@
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "loggers": [
-    "custom_components.egd_openapi"
+    "custom_components.ha_egd_openapi"
   ],
   "requirements": [],
   "version": "1.0.0"

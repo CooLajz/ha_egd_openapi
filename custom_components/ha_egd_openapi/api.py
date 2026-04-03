@@ -101,6 +101,47 @@ class EgdApiClient:
         self._access_token = token
         return token
 
+    async def _async_request_profile_data(
+        self,
+        *,
+        ean: str,
+        profile: str,
+        from_dt: datetime,
+        to_dt: datetime,
+        page_start: int,
+        page_size: int,
+    ) -> tuple[int, Any]:
+        """Request one page of profile data and refresh token once on auth failure."""
+        params = {
+            "ean": ean,
+            "profile": profile,
+            "from": from_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "to": to_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "pageStart": str(page_start),
+            "pageSize": str(page_size),
+        }
+
+        for attempt in range(2):
+            token = self._access_token or await self.async_get_token()
+            headers = {"Authorization": f"Bearer {token}"}
+            try:
+                async with self._session.get(
+                    DATA_URL, params=params, headers=headers, timeout=60
+                ) as response:
+                    data = await response.json(content_type=None)
+            except (TimeoutError, ClientError, aiohttp.ContentTypeError) as err:
+                raise EgdApiError(f"Data request failed: {err}") from err
+
+            if response.status in (401, 403):
+                self._access_token = None
+                if attempt == 0:
+                    continue
+                raise EgdAuthError(f"Authentication failed: HTTP {response.status}")
+
+            return response.status, data
+
+        raise EgdAuthError("Authentication failed after token refresh")
+
     async def async_probe_access(
         self,
         *,
@@ -190,37 +231,25 @@ class EgdApiClient:
         page_size: int = 3000,
     ) -> list[IntervalRecord]:
         """Fetch one API chunk including paging."""
-        token = self._access_token or await self.async_get_token()
         page_start = 1
         records: list[IntervalRecord] = []
 
         while True:
-            params = {
-                "ean": ean,
-                "profile": profile,
-                "from": from_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                "to": to_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-                "pageStart": str(page_start),
-                "pageSize": str(page_size),
-            }
-            headers = {"Authorization": f"Bearer {token}"}
-            try:
-                async with self._session.get(
-                    DATA_URL, params=params, headers=headers, timeout=60
-                ) as response:
-                    data = await response.json(content_type=None)
-            except (TimeoutError, ClientError, aiohttp.ContentTypeError) as err:
-                raise EgdApiError(f"Data request failed: {err}") from err
+            status, data = await self._async_request_profile_data(
+                ean=ean,
+                profile=profile,
+                from_dt=from_dt,
+                to_dt=to_dt,
+                page_start=page_start,
+                page_size=page_size,
+            )
 
-            if response.status in (401, 403):
-                self._access_token = None
-                raise EgdAuthError(f"Authentication failed: HTTP {response.status}")
-            if response.status >= 400:
-                if response.status == 400:
+            if status >= 400:
+                if status == 400:
                     raise EgdValidationError(
-                        f"Data request failed: HTTP {response.status} {data}", payload=data
+                        f"Data request failed: HTTP {status} {data}", payload=data
                     )
-                raise EgdApiError(f"Data request failed: HTTP {response.status} {data}")
+                raise EgdApiError(f"Data request failed: HTTP {status} {data}")
             if not isinstance(data, list) or not data:
                 return records
 
