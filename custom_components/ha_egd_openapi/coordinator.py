@@ -94,6 +94,17 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         """Load persisted state."""
         self._persisted = await self._store.async_load() or {}
 
+    def should_retry_refresh(self) -> bool:
+        """Return whether latest expected import data are still missing.
+
+        This is used by a lightweight watchdog to recover from missed daily
+        schedule callbacks or from cases where EG.D publishes the previous day
+        later than the configured refresh time.
+        """
+        latest_available_day = self._get_latest_available_utc().date()
+        last_valid_import = self._parse_dt(self._persisted.get(ATTR_LAST_VALID_IMPORT_TS))
+        return last_valid_import is None or last_valid_import.date() < latest_available_day
+
     async def _async_update_data(self) -> EnergyState:
         """Fetch data from API and update cumulative totals."""
         try:
