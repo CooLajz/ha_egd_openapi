@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 import voluptuous as vol
@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import aiohttp_client, event
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .api import EgdApiClient, EgdApiError, EgdAuthError
 from .const import (
@@ -139,16 +140,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.debug("Scheduled EG.D refresh at %s", now)
         await coordinator.async_request_refresh()
 
+    async def _handle_watchdog(now: datetime) -> None:
+        """Recover from missed refreshes or delayed EG.D publication."""
+        scheduled_hour = entry.options.get(CONF_UPDATE_HOUR, entry.data[CONF_UPDATE_HOUR])
+        scheduled_minute = entry.options.get(CONF_UPDATE_MINUTE, entry.data[CONF_UPDATE_MINUTE])
+        now_local = dt_util.as_local(now)
+
+        # Do not retry before the user-configured daily sync time.
+        if (now_local.hour, now_local.minute) < (scheduled_hour, scheduled_minute):
+            return
+
+        if not coordinator.should_retry_refresh():
+            return
+
+        _LOGGER.debug(
+            "EG.D watchdog requesting catch-up refresh at %s because latest import data are still missing",
+            now_local,
+        )
+        await coordinator.async_request_refresh()
+
     @callback
     def _schedule_daily_refresh() -> None:
-        unsub = event.async_track_time_change(
+        daily_unsub = event.async_track_time_change(
             hass,
             _handle_time,
             hour=entry.options.get(CONF_UPDATE_HOUR, entry.data[CONF_UPDATE_HOUR]),
             minute=entry.options.get(CONF_UPDATE_MINUTE, entry.data[CONF_UPDATE_MINUTE]),
             second=0,
         )
-        entry.async_on_unload(unsub)
+        watchdog_unsub = event.async_track_time_interval(
+            hass,
+            _handle_watchdog,
+            timedelta(hours=1),
+        )
+        entry.async_on_unload(daily_unsub)
+        entry.async_on_unload(watchdog_unsub)
 
     _schedule_daily_refresh()
 
