@@ -112,6 +112,9 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         except EgdAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except EgdApiError as err:
+            if self.data is not None:
+                _LOGGER.warning("EG.D refresh failed, keeping last known data: %s", err)
+                return self.data
             raise UpdateFailed(str(err)) from err
 
     async def _async_refresh_energy_state(self) -> EnergyState:

@@ -75,6 +75,30 @@ class EgdApiClient:
         self._client_secret = client_secret
         self._access_token: str | None = None
 
+    async def _async_read_json_response(
+        self,
+        response: aiohttp.ClientResponse,
+        *,
+        context: str,
+    ) -> Any:
+        """Decode JSON response and surface non-JSON bodies clearly."""
+        try:
+            return await response.json(content_type=None)
+        except aiohttp.ContentTypeError as err:
+            body = (await response.text()).strip()
+            snippet = body[:300]
+            raise EgdApiError(
+                f"{context} failed: HTTP {response.status}, non-JSON response"
+                f" (content-type={response.headers.get('Content-Type')}, body={snippet!r})"
+            ) from err
+        except ValueError as err:
+            body = (await response.text()).strip()
+            snippet = body[:300]
+            raise EgdApiError(
+                f"{context} failed: HTTP {response.status}, invalid JSON response"
+                f" (content-type={response.headers.get('Content-Type')}, body={snippet!r})"
+            ) from err
+
     async def async_get_token(self) -> str:
         """Get bearer token."""
         payload = {
@@ -85,8 +109,11 @@ class EgdApiClient:
         }
         try:
             async with self._session.post(OAUTH_URL, json=payload, timeout=30) as response:
-                data = await response.json(content_type=None)
-        except (TimeoutError, ClientError, aiohttp.ContentTypeError) as err:
+                data = await self._async_read_json_response(
+                    response,
+                    context="Token request",
+                )
+        except (TimeoutError, ClientError) as err:
             raise EgdApiError(f"Token request failed: {err}") from err
 
         if response.status in (401, 403):
@@ -128,8 +155,11 @@ class EgdApiClient:
                 async with self._session.get(
                     DATA_URL, params=params, headers=headers, timeout=60
                 ) as response:
-                    data = await response.json(content_type=None)
-            except (TimeoutError, ClientError, aiohttp.ContentTypeError) as err:
+                    data = await self._async_read_json_response(
+                        response,
+                        context="Data request",
+                    )
+            except (TimeoutError, ClientError) as err:
                 raise EgdApiError(f"Data request failed: {err}") from err
 
             if response.status in (401, 403):
