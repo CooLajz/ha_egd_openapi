@@ -1,14 +1,14 @@
 {
   "domain": "ha_egd_openapi",
   "name": "EG.D OpenAPI",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@CooLajz"
   ],
   "config_flow": true,
   "dependencies": [],
-  "after_dependencies": [
-    "recorder"
-  ],
   "documentation": "https://github.com/CooLajz/ha_egd_openapi",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
