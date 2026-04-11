@@ -3,13 +3,19 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/HACS-Custom-orange.svg">
-  <img src="https://img.shields.io/badge/version-1.0.0-blue">
+  <a href="https://hacs.xyz/">
+    <img src="https://img.shields.io/badge/HACS-Custom-orange.svg" alt="HACS Custom">
+  </a>
+  <a href="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hacs.yaml">
+    <img src="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hacs.yaml/badge.svg" alt="HACS validation">
+  </a>
+  <a href="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml">
+    <img src="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml/badge.svg" alt="Hassfest validation">
+  </a>
+  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version 1.0.0">
 </p>
 
 # EG.D OpenAPI pro Home Assistant
-
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
 
 Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D OpenAPI** a importuje je do statistik Home Assistantu jako kumulativní hodnoty energie. Integrace je vhodná pro uživatele s chytrým měřením u EG.D, kteří chtějí mít spotřebu a dodávku elektřiny přímo v Energy dashboardu, statistikách a automatizacích.
 
