@@ -1,4 +1,11 @@
-![EG.D OpenAPI logo](custom_components/ha_egd_openapi/brand/logo.png)
+<p align="center">
+  <img src="custom_components/ha_egd_openapi/brand/logo.png" width="250">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/HACS-Custom-orange.svg">
+  <img src="https://img.shields.io/badge/version-1.0.0-blue">
+</p>
 
 # EG.D OpenAPI pro Home Assistant
 
