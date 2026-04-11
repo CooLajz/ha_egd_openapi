@@ -1,3 +1,5 @@
+![EG.D OpenAPI logo](custom_components/ha_egd_openapi/brand/logo.png)
+
 # EG.D OpenAPI pro Home Assistant
 
 Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D OpenAPI** a importuje je do statistik Home Assistantu jako kumulativní hodnoty energie. Integrace je vhodná pro uživatele s chytrým měřením u EG.D, kteří chtějí mít spotřebu a dodávku elektřiny přímo v Energy dashboardu, statistikách a automatizacích.
