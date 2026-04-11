@@ -8,6 +8,7 @@ import logging
 import voluptuous as vol
 
 from homeassistant.components.recorder import get_instance
+from homeassistant.helpers import config_validation as cv
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -32,6 +33,8 @@ from .coordinator import EgdDataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 SERVICE_REMOVE_STATISTICS = "egd_remove_statistics_entity"
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 SERVICE_SCHEMA_REMOVE_STATISTICS = vol.Schema(
     {
         vol.Optional("entry_id"): str,

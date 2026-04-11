@@ -6,6 +6,9 @@
   ],
   "config_flow": true,
   "dependencies": [],
+  "after_dependencies": [
+    "recorder"
+  ],
   "documentation": "https://github.com/CooLajz/ha_egd_openapi",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
