@@ -48,5 +48,21 @@
         "name": "Celková dodávka"
       }
     }
+  },
+  "services": {
+    "egd_remove_statistics_entity": {
+      "name": "Odstranit statistiky EG.D",
+      "description": "Smaže importované statistiky EG.D a resetuje uložené checkpointy.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "Smaže statistiky jen pro jeden konfigurační záznam."
+        },
+        "ean": {
+          "name": "EAN",
+          "description": "Smaže statistiky jen pro jeden EAN."
+        }
+      }
+    }
   }
 }

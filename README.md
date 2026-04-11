@@ -2,6 +2,8 @@
 
 # EG.D OpenAPI pro Home Assistant
 
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
+
 Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D OpenAPI** a importuje je do statistik Home Assistantu jako kumulativní hodnoty energie. Integrace je vhodná pro uživatele s chytrým měřením u EG.D, kteří chtějí mít spotřebu a dodávku elektřiny přímo v Energy dashboardu, statistikách a automatizacích.
 
 ## K čemu integrace slouží
@@ -106,7 +108,7 @@ Pokud tento repozitář používáte přes HACS:
 
 ### Ruční instalace
 
-1. Zkopírujte složku [`custom_components/ha_egd_openapi`](/Users/coolajz/Documents/GitHub/ha_egd_openapi/custom_components/ha_egd_openapi) do svého Home Assistant projektu do adresáře `custom_components`.
+1. Zkopírujte složku `custom_components/ha_egd_openapi` do svého Home Assistant projektu do adresáře `custom_components`.
 2. Restartujte Home Assistant.
 
 ## Konfigurace v Home Assistantu

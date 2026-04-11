@@ -1,0 +1,68 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EG.D OpenAPI",
+        "description": "Enter your EG.D OpenAPI credentials.",
+        "data": {
+          "name": "Name",
+          "ean": "EAN metering point",
+          "client_id": "Client ID",
+          "client_secret": "Client Secret",
+          "import_profile": "Import profile",
+          "export_profile": "Export profile",
+          "update_hour": "Daily sync hour",
+          "update_minute": "Daily sync minute",
+          "revalidate_days": "Days to revalidate"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the API.",
+      "invalid_auth": "Invalid authentication credentials."
+    },
+    "abort": {
+      "already_configured": "This EAN is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EG.D OpenAPI",
+        "data": {
+          "import_profile": "Import profile",
+          "export_profile": "Export profile",
+          "update_hour": "Daily sync hour",
+          "update_minute": "Daily sync minute",
+          "revalidate_days": "Days to revalidate"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_import": {
+        "name": "Total import"
+      },
+      "total_export": {
+        "name": "Total export"
+      }
+    }
+  },
+  "services": {
+    "egd_remove_statistics_entity": {
+      "name": "Remove EG.D statistics",
+      "description": "Remove imported EG.D statistics and reset stored checkpoints.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "Remove statistics only for one config entry."
+        },
+        "ean": {
+          "name": "EAN",
+          "description": "Remove statistics only for one EAN."
+        }
+      }
+    }
+  }
+}
