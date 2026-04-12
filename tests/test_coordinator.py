@@ -96,3 +96,21 @@ def test_store_error_state_updates_diagnostic_persisted_values() -> None:
     assert coordinator._persisted[ATTR_SYNC_STATUS] == "error"  # noqa: SLF001
     assert coordinator._persisted[ATTR_LAST_ERROR] == "Boom"  # noqa: SLF001
     assert coordinator._persisted["last_api_sync_utc"].endswith("Z")  # noqa: SLF001
+
+
+def test_did_timestamp_advance_only_when_value_moves_forward() -> None:
+    """Successful sync timestamp should advance only on real data progress."""
+    previous = datetime(2026, 4, 10, 23, 45, tzinfo=timezone.utc)
+
+    assert EgdDataUpdateCoordinator._did_timestamp_advance(  # noqa: SLF001
+        current=datetime(2026, 4, 11, 23, 45, tzinfo=timezone.utc),
+        previous=previous,
+    )
+    assert not EgdDataUpdateCoordinator._did_timestamp_advance(  # noqa: SLF001
+        current=previous,
+        previous=previous,
+    )
+    assert not EgdDataUpdateCoordinator._did_timestamp_advance(  # noqa: SLF001
+        current=None,
+        previous=previous,
+    )

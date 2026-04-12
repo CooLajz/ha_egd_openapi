@@ -265,9 +265,21 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             )
             else "ok"
         )
+        should_advance_successful_sync = sync_status == "ok" and (
+            bool(import_stats)
+            or bool(export_stats)
+            or self._did_timestamp_advance(
+                current=import_meta["last_valid_ts"],
+                previous=self._parse_dt(self._persisted.get(ATTR_LAST_VALID_IMPORT_TS)),
+            )
+            or self._did_timestamp_advance(
+                current=export_meta["last_valid_ts"],
+                previous=self._parse_dt(self._persisted.get(ATTR_LAST_VALID_EXPORT_TS)),
+            )
+        )
         last_successful_sync_utc = (
             self._iso(now_utc)
-            if sync_status == "ok"
+            if should_advance_successful_sync
             else self._persisted.get(ATTR_LAST_API_SYNC_UTC)
         )
         state = EnergyState(
@@ -425,6 +437,19 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             last_valid_import_ts is None
             or last_valid_import_ts.date() < latest_available_utc.date()
         )
+
+    @staticmethod
+    def _did_timestamp_advance(
+        *,
+        current: datetime | None,
+        previous: datetime | None,
+    ) -> bool:
+        """Return whether a valid data timestamp moved forward."""
+        if current is None:
+            return False
+        if previous is None:
+            return True
+        return current > previous
 
     def _get_revalidation_start(self, latest_available_utc: datetime) -> datetime:
         """Return start of rolling revalidation window in UTC."""
