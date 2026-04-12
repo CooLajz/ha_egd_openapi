@@ -74,6 +74,8 @@ Diagnostická entita `Stav synchronizace` slouží hlavně pro ladění a monito
 - `waiting_for_data` pokud EG.D ještě nezveřejnilo nejnovější očekávaný den,
 - `error` pokud poslední refresh skončil chybou.
 
+Entita `Poslední úspěšná synchronizace` se aktualizuje pouze tehdy, když integrace skutečně potvrdí dostupnost očekávaných dat. Pokud EG.D ještě nová data nezveřejnilo a stav je `waiting_for_data`, čas poslední úspěšné synchronizace zůstává beze změny.
+
 ## Jak integrace funguje
 
 Integrace stahuje data z EG.D OpenAPI po stránkách a při delším období si požadavky sama rozděluje na menší úseky. Záznamy následně seskupuje do hodinových statistik a ukládá je do Home Assistant Recorderu jako kumulativní energetické řady.

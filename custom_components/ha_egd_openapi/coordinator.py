@@ -265,6 +265,11 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             )
             else "ok"
         )
+        last_successful_sync_utc = (
+            self._iso(now_utc)
+            if sync_status == "ok"
+            else self._persisted.get(ATTR_LAST_API_SYNC_UTC)
+        )
         state = EnergyState(
             total_import_kwh=round(total_import, 3),
             total_export_kwh=round(total_export, 3),
@@ -278,7 +283,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             ),
             last_import_status=import_meta["last_status"] or self._persisted.get(ATTR_LAST_IMPORT_STATUS),
             last_export_status=export_meta["last_status"] or self._persisted.get(ATTR_LAST_EXPORT_STATUS),
-            last_api_sync_utc=self._iso(now_utc),
+            last_api_sync_utc=last_successful_sync_utc,
             last_update_utc=self._iso(now_utc),
             sync_status=sync_status,
             last_error=None,
