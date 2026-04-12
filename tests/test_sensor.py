@@ -98,3 +98,12 @@ def test_next_sync_attempt_sensor_is_timestamp_and_exposes_reason() -> None:
     assert sensor.entity_description.entity_registry_enabled_default is False
     assert sensor.native_value == datetime(2026, 4, 12, 16, 17, tzinfo=timezone.utc)
     assert sensor.extra_state_attributes["next_sync_reason"] == "scheduled_daily"
+
+
+def test_all_diagnostic_sensors_are_disabled_by_default() -> None:
+    """Diagnostic sensors should stay opt-in in the entity registry."""
+    diagnostic_keys = {"sync_status", "last_api_sync", "next_sync_attempt"}
+
+    for description in SENSORS:
+        if description.key in diagnostic_keys:
+            assert description.entity_registry_enabled_default is False

@@ -70,6 +70,7 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         name="Sync status",
         value_key="sync_status",
         entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         icon="mdi:sync",
     ),
     EgdSensorDescription(
@@ -79,6 +80,7 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         value_key="last_api_sync_utc",
         device_class=SensorDeviceClass.TIMESTAMP,
         entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         icon="mdi:clock-check-outline",
     ),
     EgdSensorDescription(
