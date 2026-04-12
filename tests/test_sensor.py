@@ -49,6 +49,8 @@ def _build_state() -> EnergyState:
         last_update_utc="2026-04-12T06:00:00Z",
         sync_status="ok",
         last_error=None,
+        last_check_started_utc="2026-04-12T05:59:58Z",
+        last_check_finished_utc="2026-04-12T06:00:00Z",
     )
 
 
@@ -67,6 +69,7 @@ def test_sync_status_sensor_exposes_diagnostic_attributes() -> None:
     assert sensor.native_value == "error"
     assert sensor.extra_state_attributes["last_error"] == "Timeout"
     assert sensor.extra_state_attributes["last_valid_import_timestamp"] == "2026-04-11T23:45:00Z"
+    assert sensor.extra_state_attributes["last_check_started_utc"] == "2026-04-12T05:59:58Z"
 
 
 def test_last_api_sync_sensor_returns_datetime_value() -> None:

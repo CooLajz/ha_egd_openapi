@@ -50,6 +50,7 @@
       "sync_status": {
         "name": "Sync status",
         "state": {
+          "checking_for_updates": "Checking for updates",
           "ok": "OK",
           "waiting_for_data": "Waiting for data",
           "error": "Error"

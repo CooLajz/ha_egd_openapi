@@ -18,6 +18,8 @@ from homeassistant.util import dt as dt_util
 from .api import EgdApiClient, EgdApiError, EgdAuthError, IntervalRecord
 from .const import (
     ATTR_LAST_API_SYNC_UTC,
+    ATTR_LAST_CHECK_FINISHED_UTC,
+    ATTR_LAST_CHECK_STARTED_UTC,
     ATTR_LAST_ERROR,
     ATTR_LAST_EXPORT_STATUS,
     ATTR_LAST_IMPORT_STATUS,
@@ -70,6 +72,8 @@ class EnergyState:
     last_update_utc: str | None
     sync_status: str
     last_error: str | None
+    last_check_started_utc: str | None
+    last_check_finished_utc: str | None
 
 
 class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
@@ -116,6 +120,16 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
 
     async def _async_update_data(self) -> EnergyState:
         """Fetch data from API and update cumulative totals."""
+        check_started_utc = self._iso(dt_util.utcnow().astimezone(timezone.utc))
+        self._persisted[ATTR_LAST_CHECK_STARTED_UTC] = check_started_utc
+        if self.data is not None:
+            self.data = replace(
+                self.data,
+                sync_status="checking_for_updates",
+                last_error=None,
+                last_check_started_utc=check_started_utc,
+            )
+            self.async_update_listeners()
         try:
             return await self._async_refresh_energy_state()
         except EgdAuthError as err:
@@ -132,6 +146,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                     last_api_sync_utc=self._persisted.get(ATTR_LAST_API_SYNC_UTC),
                     sync_status="error",
                     last_error=str(err),
+                    last_check_started_utc=self._persisted.get(ATTR_LAST_CHECK_STARTED_UTC),
+                    last_check_finished_utc=self._persisted.get(ATTR_LAST_CHECK_FINISHED_UTC),
                 )
             raise UpdateFailed(str(err)) from err
 
@@ -305,6 +321,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             last_update_utc=self._iso(now_utc),
             sync_status=sync_status,
             last_error=None,
+            last_check_started_utc=self._persisted.get(ATTR_LAST_CHECK_STARTED_UTC),
+            last_check_finished_utc=self._iso(now_utc),
         )
 
         self._persisted.update(
@@ -319,6 +337,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 ATTR_LAST_UPDATE_UTC: state.last_update_utc,
                 ATTR_SYNC_STATUS: state.sync_status,
                 ATTR_LAST_ERROR: state.last_error,
+                ATTR_LAST_CHECK_STARTED_UTC: state.last_check_started_utc,
+                ATTR_LAST_CHECK_FINISHED_UTC: state.last_check_finished_utc,
             }
         )
 
@@ -431,6 +451,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         self._persisted[ATTR_LAST_ERROR] = error_message
         self._persisted[ATTR_SYNC_STATUS] = "error"
         self._persisted[ATTR_LAST_API_SYNC_UTC] = now_utc
+        self._persisted[ATTR_LAST_CHECK_FINISHED_UTC] = now_utc
 
     @staticmethod
     def _is_waiting_for_latest_data(

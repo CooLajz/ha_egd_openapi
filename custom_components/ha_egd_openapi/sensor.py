@@ -21,6 +21,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     ATTR_EAN,
     ATTR_LAST_API_SYNC_UTC,
+    ATTR_LAST_CHECK_FINISHED_UTC,
+    ATTR_LAST_CHECK_STARTED_UTC,
     ATTR_LAST_ERROR,
     ATTR_LAST_EXPORT_STATUS,
     ATTR_LAST_IMPORT_STATUS,
@@ -118,7 +120,7 @@ class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity)
 
         if description.key == "sync_status":
             self._attr_device_class = SensorDeviceClass.ENUM
-            self._attr_options = ["ok", "waiting_for_data", "error"]
+            self._attr_options = ["checking_for_updates", "ok", "waiting_for_data", "error"]
 
     @property
     def native_value(self) -> Any | None:
@@ -140,6 +142,8 @@ class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity)
         attrs[ATTR_LAST_API_SYNC_UTC] = data.last_api_sync_utc
         attrs[ATTR_LAST_UPDATE_UTC] = data.last_update_utc
         attrs[ATTR_SYNC_STATUS] = data.sync_status
+        attrs[ATTR_LAST_CHECK_STARTED_UTC] = data.last_check_started_utc
+        attrs[ATTR_LAST_CHECK_FINISHED_UTC] = data.last_check_finished_utc
 
         if self.entity_description.key in {"sync_status", "last_api_sync"}:
             attrs[ATTR_LAST_ERROR] = data.last_error
