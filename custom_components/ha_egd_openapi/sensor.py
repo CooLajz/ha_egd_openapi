@@ -65,8 +65,6 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         translation_key="sync_status",
         name="Sync status",
         value_key="sync_status",
-        device_class=SensorDeviceClass.ENUM,
-        options=["ok", "waiting_for_data", "error"],
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:sync",
     ),
@@ -107,6 +105,7 @@ class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity)
         self.entity_description = description
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+        self._attr_translation_key = description.translation_key
 
         ean = entry.data[CONF_EAN]
 
@@ -116,6 +115,10 @@ class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity)
             "manufacturer": "EG.D",
             "model": "OpenAPI Smart Meter",
         }
+
+        if description.key == "sync_status":
+            self._attr_device_class = SensorDeviceClass.ENUM
+            self._attr_options = ["ok", "waiting_for_data", "error"]
 
     @property
     def native_value(self) -> Any | None:
