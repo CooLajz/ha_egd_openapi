@@ -130,6 +130,7 @@ class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity)
             "name": entry.title,
             "manufacturer": "EG.D",
             "model": "OpenAPI Smart Meter",
+            "serial_number": ean,
         }
 
         if description.key == "sync_status":

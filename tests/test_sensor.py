@@ -69,6 +69,7 @@ def test_sync_status_sensor_exposes_diagnostic_attributes() -> None:
     sensor = _build_sensor("sync_status", state)
 
     assert sensor.native_value == "error"
+    assert sensor.device_info["serial_number"] == "859182400000000000"
     assert sensor.extra_state_attributes["last_error"] == "Timeout"
     assert sensor.extra_state_attributes["last_valid_import_timestamp"] == "2026-04-11T23:45:00Z"
     assert sensor.extra_state_attributes["last_check_started_utc"] == "2026-04-12T05:59:58Z"
