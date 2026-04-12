@@ -60,6 +60,9 @@
       },
       "last_api_sync": {
         "name": "Last successful sync"
+      },
+      "next_sync_attempt": {
+        "name": "Next sync attempt"
       }
     }
   },

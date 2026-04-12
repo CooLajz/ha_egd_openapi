@@ -60,6 +60,9 @@
       },
       "last_api_sync": {
         "name": "Poslední úspěšná synchronizace"
+      },
+      "next_sync_attempt": {
+        "name": "Další pokus o synchronizaci"
       }
     }
   },

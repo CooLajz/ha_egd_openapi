@@ -25,7 +25,10 @@ def _build_coordinator() -> EgdDataUpdateCoordinator:
     """Create an uninitialized coordinator instance for pure method tests."""
     coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
     coordinator._persisted = {}  # noqa: SLF001
-    coordinator.config_entry = SimpleNamespace(options={}, data={})
+    coordinator.config_entry = SimpleNamespace(
+        options={},
+        data={"update_hour": 16, "update_minute": 17},
+    )
     return coordinator
 
 
@@ -159,3 +162,17 @@ def test_diagnostic_events_buffer_is_bounded() -> None:
     assert len(events) == MAX_DIAGNOSTIC_EVENTS
     assert events[0]["message"] == "event-5"
     assert events[-1]["message"] == f"event-{MAX_DIAGNOSTIC_EVENTS + 4}"
+
+
+def test_next_sync_attempt_prefers_watchdog_when_waiting_for_data() -> None:
+    """Waiting for data should expose the next hourly retry, not tomorrow's daily run."""
+    coordinator = _build_coordinator()
+    now = datetime(2026, 4, 12, 18, 0, tzinfo=timezone.utc)
+
+    next_attempt, reason = coordinator._get_next_sync_attempt(  # noqa: SLF001
+        now_utc=now,
+        sync_status="waiting_for_data",
+    )
+
+    assert next_attempt == datetime(2026, 4, 12, 19, 0, tzinfo=timezone.utc)
+    assert reason == "watchdog_retry"

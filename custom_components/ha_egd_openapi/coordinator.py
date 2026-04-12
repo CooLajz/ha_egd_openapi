@@ -23,6 +23,8 @@ from .const import (
     ATTR_LAST_ERROR,
     ATTR_LAST_EXPORT_STATUS,
     ATTR_LAST_IMPORT_STATUS,
+    ATTR_NEXT_SYNC_ATTEMPT_UTC,
+    ATTR_NEXT_SYNC_REASON,
     ATTR_SYNC_STATUS,
     ATTR_LAST_UPDATE_UTC,
     ATTR_LAST_VALID_EXPORT_TS,
@@ -32,6 +34,8 @@ from .const import (
     CONF_EXPORT_PROFILE,
     CONF_IMPORT_PROFILE,
     CONF_REVALIDATE_DAYS,
+    CONF_UPDATE_HOUR,
+    CONF_UPDATE_MINUTE,
     DEFAULT_ENABLE_DIAGNOSTICS,
     DOMAIN,
     DIAGNOSTICS_EVENTS_KEY,
@@ -78,6 +82,8 @@ class EnergyState:
     last_error: str | None
     last_check_started_utc: str | None
     last_check_finished_utc: str | None
+    next_sync_attempt_utc: str | None
+    next_sync_reason: str | None
 
 
 class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
@@ -359,6 +365,10 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             if should_advance_successful_sync
             else self._persisted.get(ATTR_LAST_API_SYNC_UTC)
         )
+        next_sync_attempt_utc, next_sync_reason = self._get_next_sync_attempt(
+            now_utc=now_utc,
+            sync_status=sync_status,
+        )
         state = EnergyState(
             total_import_kwh=round(total_import, 3),
             total_export_kwh=round(total_export, 3),
@@ -378,6 +388,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             last_error=None,
             last_check_started_utc=self._persisted.get(ATTR_LAST_CHECK_STARTED_UTC),
             last_check_finished_utc=self._iso(now_utc),
+            next_sync_attempt_utc=self._iso(next_sync_attempt_utc),
+            next_sync_reason=next_sync_reason,
         )
         self._record_diagnostic_event(
             "info",
@@ -406,6 +418,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 ATTR_LAST_ERROR: state.last_error,
                 ATTR_LAST_CHECK_STARTED_UTC: state.last_check_started_utc,
                 ATTR_LAST_CHECK_FINISHED_UTC: state.last_check_finished_utc,
+                ATTR_NEXT_SYNC_ATTEMPT_UTC: state.next_sync_attempt_utc,
+                ATTR_NEXT_SYNC_REASON: state.next_sync_reason,
             }
         )
 
@@ -605,6 +619,39 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         if not isinstance(events, list):
             return []
         return list(events)
+
+    def _get_next_sync_attempt(
+        self,
+        *,
+        now_utc: datetime,
+        sync_status: str,
+    ) -> tuple[datetime, str]:
+        """Return the next automatic sync attempt and why it will happen."""
+        daily_attempt = self._get_next_daily_sync_attempt(now_utc)
+        if sync_status == "waiting_for_data":
+            return now_utc + timedelta(hours=1), "watchdog_retry"
+        return daily_attempt, "scheduled_daily"
+
+    def _get_next_daily_sync_attempt(self, now_utc: datetime) -> datetime:
+        """Return the next daily sync timestamp converted to UTC."""
+        scheduled_hour = self.config_entry.options.get(
+            CONF_UPDATE_HOUR,
+            self.config_entry.data[CONF_UPDATE_HOUR],
+        )
+        scheduled_minute = self.config_entry.options.get(
+            CONF_UPDATE_MINUTE,
+            self.config_entry.data[CONF_UPDATE_MINUTE],
+        )
+        now_local = dt_util.as_local(now_utc)
+        scheduled_local = now_local.replace(
+            hour=scheduled_hour,
+            minute=scheduled_minute,
+            second=0,
+            microsecond=0,
+        )
+        if scheduled_local <= now_local:
+            scheduled_local += timedelta(days=1)
+        return scheduled_local.astimezone(timezone.utc)
 
     @staticmethod
     def _is_waiting_for_latest_data(

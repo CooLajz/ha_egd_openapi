@@ -51,6 +51,8 @@ def _build_state() -> EnergyState:
         last_error=None,
         last_check_started_utc="2026-04-12T05:59:58Z",
         last_check_finished_utc="2026-04-12T06:00:00Z",
+        next_sync_attempt_utc="2026-04-12T16:17:00Z",
+        next_sync_reason="scheduled_daily",
     )
 
 
@@ -87,3 +89,12 @@ def test_total_import_sensor_keeps_energy_value_and_import_attributes() -> None:
     assert sensor.native_value == 123.456
     assert sensor.extra_state_attributes["last_import_status"] == "IU012"
     assert "last_export_status" not in sensor.extra_state_attributes
+
+
+def test_next_sync_attempt_sensor_is_timestamp_and_exposes_reason() -> None:
+    """Disabled-by-default diagnostic sensor should expose the next retry plan."""
+    sensor = _build_sensor("next_sync_attempt", _build_state())
+
+    assert sensor.entity_description.entity_registry_enabled_default is False
+    assert sensor.native_value == datetime(2026, 4, 12, 16, 17, tzinfo=timezone.utc)
+    assert sensor.extra_state_attributes["next_sync_reason"] == "scheduled_daily"

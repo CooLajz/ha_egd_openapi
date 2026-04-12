@@ -26,10 +26,12 @@ from .const import (
     ATTR_LAST_ERROR,
     ATTR_LAST_EXPORT_STATUS,
     ATTR_LAST_IMPORT_STATUS,
-    ATTR_SYNC_STATUS,
     ATTR_LAST_UPDATE_UTC,
     ATTR_LAST_VALID_EXPORT_TS,
     ATTR_LAST_VALID_IMPORT_TS,
+    ATTR_NEXT_SYNC_ATTEMPT_UTC,
+    ATTR_NEXT_SYNC_REASON,
+    ATTR_SYNC_STATUS,
     CONF_EAN,
     DOMAIN,
 )
@@ -78,6 +80,16 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:clock-check-outline",
+    ),
+    EgdSensorDescription(
+        key="next_sync_attempt",
+        translation_key="next_sync_attempt",
+        name="Next sync attempt",
+        value_key="next_sync_attempt_utc",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        icon="mdi:clock-start",
     ),
 )
 
@@ -144,8 +156,10 @@ class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity)
         attrs[ATTR_SYNC_STATUS] = data.sync_status
         attrs[ATTR_LAST_CHECK_STARTED_UTC] = data.last_check_started_utc
         attrs[ATTR_LAST_CHECK_FINISHED_UTC] = data.last_check_finished_utc
+        attrs[ATTR_NEXT_SYNC_ATTEMPT_UTC] = data.next_sync_attempt_utc
+        attrs[ATTR_NEXT_SYNC_REASON] = data.next_sync_reason
 
-        if self.entity_description.key in {"sync_status", "last_api_sync"}:
+        if self.entity_description.key in {"sync_status", "last_api_sync", "next_sync_attempt"}:
             attrs[ATTR_LAST_ERROR] = data.last_error
             attrs[ATTR_LAST_VALID_IMPORT_TS] = data.last_valid_import_timestamp
             attrs[ATTR_LAST_VALID_EXPORT_TS] = data.last_valid_export_timestamp
