@@ -48,7 +48,12 @@
         "name": "Celková dodávka"
       },
       "sync_status": {
-        "name": "Stav synchronizace"
+        "name": "Stav synchronizace",
+        "state": {
+          "ok": "V pořádku",
+          "waiting_for_data": "Čeká se na data",
+          "error": "Chyba"
+        }
       },
       "last_api_sync": {
         "name": "Poslední úspěšná synchronizace"

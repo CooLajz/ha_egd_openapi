@@ -65,6 +65,8 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         translation_key="sync_status",
         name="Sync status",
         value_key="sync_status",
+        device_class=SensorDeviceClass.ENUM,
+        options=["ok", "waiting_for_data", "error"],
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:sync",
     ),

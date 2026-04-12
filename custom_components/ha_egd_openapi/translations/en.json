@@ -48,7 +48,12 @@
         "name": "Total export"
       },
       "sync_status": {
-        "name": "Sync status"
+        "name": "Sync status",
+        "state": {
+          "ok": "OK",
+          "waiting_for_data": "Waiting for data",
+          "error": "Error"
+        }
       },
       "last_api_sync": {
         "name": "Last successful sync"
