@@ -13,7 +13,8 @@
           "export_profile": "Export profile",
           "update_hour": "Daily sync hour",
           "update_minute": "Daily sync minute",
-          "revalidate_days": "Days to revalidate"
+          "revalidate_days": "Days to revalidate",
+          "enable_diagnostics": "Collect diagnostic data"
         }
       }
     },
@@ -34,7 +35,8 @@
           "export_profile": "Export profile",
           "update_hour": "Daily sync hour",
           "update_minute": "Daily sync minute",
-          "revalidate_days": "Days to revalidate"
+          "revalidate_days": "Days to revalidate",
+          "enable_diagnostics": "Collect diagnostic data"
         }
       }
     }

@@ -13,6 +13,7 @@ from homeassistant.helpers import aiohttp_client, selector
 from .api import EgdApiClient, EgdApiError, EgdAuthError
 from .const import (
     CONF_CLIENT_ID,
+    CONF_ENABLE_DIAGNOSTICS,
     CONF_CLIENT_SECRET,
     CONF_EAN,
     CONF_EXPORT_PROFILE,
@@ -20,6 +21,7 @@ from .const import (
     CONF_REVALIDATE_DAYS,
     CONF_UPDATE_HOUR,
     CONF_UPDATE_MINUTE,
+    DEFAULT_ENABLE_DIAGNOSTICS,
     DEFAULT_EXPORT_PROFILE,
     DEFAULT_IMPORT_PROFILE,
     DEFAULT_NAME,
@@ -94,6 +96,12 @@ def _build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     step=1,
                 )
             ),
+            vol.Required(
+                CONF_ENABLE_DIAGNOSTICS,
+                default=bool(
+                    defaults.get(CONF_ENABLE_DIAGNOSTICS, DEFAULT_ENABLE_DIAGNOSTICS)
+                ),
+            ): bool,
         }
     )
 
@@ -124,6 +132,12 @@ def _build_options_schema(config_entry: config_entries.ConfigEntry) -> vol.Schem
             CONF_REVALIDATE_DAYS: config_entry.options.get(
                 CONF_REVALIDATE_DAYS,
                 config_entry.data.get(CONF_REVALIDATE_DAYS, DEFAULT_REVALIDATE_DAYS),
+            ),
+            CONF_ENABLE_DIAGNOSTICS: config_entry.options.get(
+                CONF_ENABLE_DIAGNOSTICS,
+                config_entry.data.get(
+                    CONF_ENABLE_DIAGNOSTICS, DEFAULT_ENABLE_DIAGNOSTICS
+                ),
             ),
         }
     )
@@ -165,6 +179,7 @@ class EgdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_UPDATE_HOUR: int(user_input[CONF_UPDATE_HOUR]),
                         CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
                         CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
+                        CONF_ENABLE_DIAGNOSTICS: bool(user_input[CONF_ENABLE_DIAGNOSTICS]),
                     },
                 )
 
@@ -192,6 +207,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                     CONF_UPDATE_HOUR: int(user_input[CONF_UPDATE_HOUR]),
                     CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
                     CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
+                    CONF_ENABLE_DIAGNOSTICS: bool(user_input[CONF_ENABLE_DIAGNOSTICS]),
                 },
             )
 
@@ -281,6 +297,18 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                             step=1,
                         )
                     ),
+                    vol.Required(
+                        CONF_ENABLE_DIAGNOSTICS,
+                        default=bool(
+                            self.config_entry.options.get(
+                                CONF_ENABLE_DIAGNOSTICS,
+                                self.config_entry.data.get(
+                                    CONF_ENABLE_DIAGNOSTICS,
+                                    DEFAULT_ENABLE_DIAGNOSTICS,
+                                ),
+                            )
+                        ),
+                    ): bool,
                 }
             ),
         )

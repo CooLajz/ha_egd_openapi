@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging
-from typing import Any
+from typing import Any, Callable
 
 import aiohttp
 from aiohttp import ClientError
@@ -69,11 +69,37 @@ class IntervalRecord:
 class EgdApiClient:
     """Simple async client for EG.D OpenAPI."""
 
-    def __init__(self, session: aiohttp.ClientSession, client_id: str, client_secret: str) -> None:
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        client_id: str,
+        client_secret: str,
+        *,
+        diagnostic_logger: Callable[[str, str, dict[str, Any] | None], None] | None = None,
+    ) -> None:
         self._session = session
         self._client_id = client_id
         self._client_secret = client_secret
         self._access_token: str | None = None
+        self._diagnostic_logger = diagnostic_logger
+
+    def set_diagnostic_logger(
+        self,
+        diagnostic_logger: Callable[[str, str, dict[str, Any] | None], None] | None,
+    ) -> None:
+        """Update diagnostic logger callback."""
+        self._diagnostic_logger = diagnostic_logger
+
+    def _log_diagnostic(
+        self,
+        level: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a structured diagnostic event when collection is enabled."""
+        if self._diagnostic_logger is None:
+            return
+        self._diagnostic_logger(level, message, details)
 
     async def _async_read_json_response(
         self,
@@ -107,6 +133,8 @@ class EgdApiClient:
             "client_secret": self._client_secret,
             "scope": "namerena_data_openapi",
         }
+        _LOGGER.debug("Requesting EG.D OAuth token")
+        self._log_diagnostic("debug", "token_request_started")
         try:
             async with self._session.post(OAUTH_URL, json=payload, timeout=30) as response:
                 data = await self._async_read_json_response(
@@ -114,18 +142,35 @@ class EgdApiClient:
                     context="Token request",
                 )
         except (TimeoutError, ClientError) as err:
+            self._log_diagnostic(
+                "error",
+                "token_request_failed",
+                {"reason": str(err)},
+            )
             raise EgdApiError(f"Token request failed: {err}") from err
 
         if response.status in (401, 403):
+            self._log_diagnostic(
+                "error",
+                "token_request_auth_failed",
+                {"status": response.status},
+            )
             raise EgdAuthError(f"Authentication failed: HTTP {response.status}")
         if response.status >= 400:
+            self._log_diagnostic(
+                "error",
+                "token_request_http_error",
+                {"status": response.status},
+            )
             raise EgdApiError(f"Token request failed: HTTP {response.status} {data}")
 
         token = data.get("access_token")
         if not token:
+            self._log_diagnostic("error", "token_missing_access_token")
             raise EgdApiError("Token response does not contain access_token")
 
         self._access_token = token
+        self._log_diagnostic("info", "token_request_succeeded")
         return token
 
     async def _async_request_profile_data(
@@ -147,6 +192,27 @@ class EgdApiClient:
             "pageStart": str(page_start),
             "pageSize": str(page_size),
         }
+        _LOGGER.debug(
+            "Requesting EG.D data for EAN %s profile %s from %s to %s (pageStart=%s pageSize=%s)",
+            ean,
+            profile,
+            params["from"],
+            params["to"],
+            page_start,
+            page_size,
+        )
+        self._log_diagnostic(
+            "debug",
+            "profile_request_started",
+            {
+                "ean_suffix": ean[-4:],
+                "profile": profile,
+                "from": params["from"],
+                "to": params["to"],
+                "page_start": page_start,
+                "page_size": page_size,
+            },
+        )
 
         for attempt in range(2):
             token = self._access_token or await self.async_get_token()
@@ -160,14 +226,29 @@ class EgdApiClient:
                         context="Data request",
                     )
             except (TimeoutError, ClientError) as err:
+                self._log_diagnostic(
+                    "error",
+                    "profile_request_failed",
+                    {"reason": str(err), "attempt": attempt + 1},
+                )
                 raise EgdApiError(f"Data request failed: {err}") from err
 
             if response.status in (401, 403):
                 self._access_token = None
+                self._log_diagnostic(
+                    "warning",
+                    "profile_request_auth_retry",
+                    {"status": response.status, "attempt": attempt + 1},
+                )
                 if attempt == 0:
                     continue
                 raise EgdAuthError(f"Authentication failed: HTTP {response.status}")
 
+            self._log_diagnostic(
+                "debug",
+                "profile_request_finished",
+                {"status": response.status, "attempt": attempt + 1},
+            )
             return response.status, data
 
         raise EgdAuthError("Authentication failed after token refresh")
@@ -203,8 +284,28 @@ class EgdApiClient:
                     to_dt.isoformat(),
                     err,
                 )
+                self._log_diagnostic(
+                    "info",
+                    "access_probe_denied",
+                    {
+                        "ean_suffix": ean[-4:],
+                        "profile": profile,
+                        "from": from_dt.isoformat(),
+                        "to": to_dt.isoformat(),
+                    },
+                )
                 return False
             raise
+        self._log_diagnostic(
+            "debug",
+            "access_probe_succeeded",
+            {
+                "ean_suffix": ean[-4:],
+                "profile": profile,
+                "from": from_dt.isoformat(),
+                "to": to_dt.isoformat(),
+            },
+        )
         return True
 
     async def async_get_profile_data(
@@ -230,6 +331,16 @@ class EgdApiClient:
                 ean,
                 profile,
             )
+            self._log_diagnostic(
+                "info",
+                "profile_fetch_skipped_after_clamp",
+                {
+                    "ean_suffix": ean[-4:],
+                    "profile": profile,
+                    "effective_from": effective_from.isoformat(),
+                    "effective_to": effective_to.isoformat(),
+                },
+            )
             return []
 
         all_records: list[IntervalRecord] = []
@@ -246,9 +357,29 @@ class EgdApiClient:
                 to_dt=chunk_end,
             )
             all_records.extend(chunk_records)
+            self._log_diagnostic(
+                "debug",
+                "profile_chunk_loaded",
+                {
+                    "ean_suffix": ean[-4:],
+                    "profile": profile,
+                    "from": chunk_start.isoformat(),
+                    "to": chunk_end.isoformat(),
+                    "records": len(chunk_records),
+                },
+            )
             chunk_start = chunk_end + timedelta(minutes=15)
 
         all_records.sort(key=lambda rec: rec.timestamp)
+        self._log_diagnostic(
+            "info",
+            "profile_fetch_completed",
+            {
+                "ean_suffix": ean[-4:],
+                "profile": profile,
+                "records": len(all_records),
+            },
+        )
         return all_records
 
     async def _async_get_profile_data_chunk(
@@ -284,6 +415,15 @@ class EgdApiClient:
                     )
                 raise EgdApiError(f"Data request failed: HTTP {status} {data}")
             if not isinstance(data, list) or not data:
+                self._log_diagnostic(
+                    "debug",
+                    "profile_chunk_empty",
+                    {
+                        "ean_suffix": ean[-4:],
+                        "profile": profile,
+                        "page_start": page_start,
+                    },
+                )
                 return records
 
             payload = data[0]
@@ -304,4 +444,14 @@ class EgdApiClient:
                 break
             page_start += len(batch)
 
+        self._log_diagnostic(
+            "debug",
+            "profile_chunk_paginated",
+            {
+                "ean_suffix": ean[-4:],
+                "profile": profile,
+                "records": len(records),
+                "total": total,
+            },
+        )
         return records

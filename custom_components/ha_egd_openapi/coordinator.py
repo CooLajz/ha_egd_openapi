@@ -28,11 +28,15 @@ from .const import (
     ATTR_LAST_VALID_EXPORT_TS,
     ATTR_LAST_VALID_IMPORT_TS,
     CONF_EAN,
+    CONF_ENABLE_DIAGNOSTICS,
     CONF_EXPORT_PROFILE,
     CONF_IMPORT_PROFILE,
     CONF_REVALIDATE_DAYS,
+    DEFAULT_ENABLE_DIAGNOSTICS,
     DOMAIN,
+    DIAGNOSTICS_EVENTS_KEY,
     DEFAULT_REVALIDATE_DAYS,
+    MAX_DIAGNOSTIC_EVENTS,
     STORE_KEY,
     STORE_VERSION,
 )
@@ -90,6 +94,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         self.client = client
         self._store = Store(hass, STORE_VERSION, f"{STORE_KEY}_{entry.entry_id}")
         self._persisted: dict[str, Any] = {}
+        self.client.set_diagnostic_logger(self._record_diagnostic_event)
 
         super().__init__(
             hass,
@@ -101,6 +106,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     async def async_load(self) -> None:
         """Load persisted state."""
         self._persisted = await self._store.async_load() or {}
+        self._persisted.setdefault(DIAGNOSTICS_EVENTS_KEY, [])
 
     def should_retry_refresh(self) -> bool:
         """Return whether latest expected import or export data are still missing.
@@ -121,6 +127,11 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     async def _async_update_data(self) -> EnergyState:
         """Fetch data from API and update cumulative totals."""
         check_started_utc = self._iso(dt_util.utcnow().astimezone(timezone.utc))
+        self._record_diagnostic_event(
+            "info",
+            "refresh_started",
+            {"entry_id": self.config_entry.entry_id},
+        )
         self._persisted[ATTR_LAST_CHECK_STARTED_UTC] = check_started_utc
         if self.data is not None:
             self.data = replace(
@@ -133,10 +144,20 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         try:
             return await self._async_refresh_energy_state()
         except EgdAuthError as err:
+            self._record_diagnostic_event(
+                "error",
+                "refresh_auth_failed",
+                {"reason": str(err)},
+            )
             self._store_error_state(str(err))
             await self._store.async_save(self._persisted)
             raise ConfigEntryAuthFailed(str(err)) from err
         except EgdApiError as err:
+            self._record_diagnostic_event(
+                "error",
+                "refresh_failed",
+                {"reason": str(err)},
+            )
             self._store_error_state(str(err))
             await self._store.async_save(self._persisted)
             if self.data is not None:
@@ -182,6 +203,27 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
             last_valid_key=ATTR_LAST_VALID_EXPORT_TS,
         )
+        _LOGGER.debug(
+            "Refreshing EG.D state for EAN %s: import profile %s from %s, export profile %s from %s, latest available %s",
+            ean,
+            import_profile,
+            import_from.isoformat() if import_from else None,
+            export_profile,
+            export_from.isoformat() if export_from else None,
+            latest_available_utc.isoformat(),
+        )
+        self._record_diagnostic_event(
+            "debug",
+            "refresh_window_resolved",
+            {
+                "ean_suffix": ean[-4:],
+                "import_profile": import_profile,
+                "import_from": import_from.isoformat() if import_from else None,
+                "export_profile": export_profile,
+                "export_from": export_from.isoformat() if export_from else None,
+                "latest_available_utc": latest_available_utc.isoformat(),
+            },
+        )
 
         import_records: list[IntervalRecord] = []
         export_records: list[IntervalRecord] = []
@@ -209,6 +251,19 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         export_hourly, export_meta = self._process_records_hourly(
             records=export_records,
             profile=export_profile,
+        )
+        self._record_diagnostic_event(
+            "debug",
+            "records_processed",
+            {
+                "ean_suffix": ean[-4:],
+                "import_records": len(import_records),
+                "export_records": len(export_records),
+                "import_hours": len(import_hourly),
+                "export_hours": len(export_hourly),
+                "last_import_status": import_meta["last_status"],
+                "last_export_status": export_meta["last_status"],
+            },
         )
 
         total_import, import_stats = self._merge_statistics(
@@ -324,6 +379,18 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             last_check_started_utc=self._persisted.get(ATTR_LAST_CHECK_STARTED_UTC),
             last_check_finished_utc=self._iso(now_utc),
         )
+        self._record_diagnostic_event(
+            "info",
+            "refresh_completed",
+            {
+                "ean_suffix": ean[-4:],
+                "sync_status": sync_status,
+                "total_import_kwh": state.total_import_kwh,
+                "total_export_kwh": state.total_export_kwh,
+                "import_rows_written": len(import_stats),
+                "export_rows_written": len(export_stats),
+            },
+        )
 
         self._persisted.update(
             {
@@ -391,11 +458,39 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         cache_complete = bool(self._persisted.get(cache_complete_key))
         if not cache_complete:
             if self._parse_dt(self._persisted.get(last_valid_key)) is None:
+                self._record_diagnostic_event(
+                    "debug",
+                    "start_timestamp_full_history",
+                    {
+                        "profile": profile,
+                        "hard_min": hard_min.isoformat(),
+                    },
+                )
                 return hard_min
-            return max(self._get_revalidation_start(latest_available_utc), hard_min)
+            start = max(self._get_revalidation_start(latest_available_utc), hard_min)
+            self._record_diagnostic_event(
+                "debug",
+                "start_timestamp_partial_cache",
+                {
+                    "profile": profile,
+                    "start": start.isoformat(),
+                    "hard_min": hard_min.isoformat(),
+                },
+            )
+            return start
 
         revalidation_start = self._get_revalidation_start(latest_available_utc)
-        return max(revalidation_start, hard_min)
+        start = max(revalidation_start, hard_min)
+        self._record_diagnostic_event(
+            "debug",
+            "start_timestamp_revalidation",
+            {
+                "profile": profile,
+                "start": start.isoformat(),
+                "hard_min": hard_min.isoformat(),
+            },
+        )
+        return start
 
     def _merge_statistics(
         self,
@@ -443,6 +538,19 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             total = round(sum(merged.values()), 6)
         else:
             total = float(self._persisted.get(persisted_total_key, 0.0))
+        self._record_diagnostic_event(
+            "debug",
+            "statistics_merged",
+            {
+                "cache_key": cache_key,
+                "fetched_from": fetched_from.isoformat() if fetched_from else None,
+                "latest_available_utc": latest_available_utc.isoformat(),
+                "hourly_deltas": len(hourly_deltas),
+                "changed_rows": len(rows),
+                "cache_complete": cache_complete,
+                "total_kwh": round(total, 6),
+            },
+        )
         return total, rows
 
     def _store_error_state(self, error_message: str) -> None:
@@ -452,6 +560,51 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         self._persisted[ATTR_SYNC_STATUS] = "error"
         self._persisted[ATTR_LAST_API_SYNC_UTC] = now_utc
         self._persisted[ATTR_LAST_CHECK_FINISHED_UTC] = now_utc
+
+    def diagnostics_enabled(self) -> bool:
+        """Return whether structured diagnostics collection is enabled."""
+        return bool(
+            self.config_entry.options.get(
+                CONF_ENABLE_DIAGNOSTICS,
+                self.config_entry.data.get(
+                    CONF_ENABLE_DIAGNOSTICS,
+                    DEFAULT_ENABLE_DIAGNOSTICS,
+                ),
+            )
+        )
+
+    def _record_diagnostic_event(
+        self,
+        level: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Store bounded structured diagnostics for later download."""
+        if not self.diagnostics_enabled():
+            return
+
+        events = self._persisted.setdefault(DIAGNOSTICS_EVENTS_KEY, [])
+        if not isinstance(events, list):
+            events = []
+            self._persisted[DIAGNOSTICS_EVENTS_KEY] = events
+
+        events.append(
+            {
+                "ts": self._iso(dt_util.utcnow().astimezone(timezone.utc)),
+                "level": level,
+                "message": message,
+                "details": details or {},
+            }
+        )
+        if len(events) > MAX_DIAGNOSTIC_EVENTS:
+            del events[:-MAX_DIAGNOSTIC_EVENTS]
+
+    def get_diagnostic_events(self) -> list[dict[str, Any]]:
+        """Return collected diagnostic events."""
+        events = self._persisted.get(DIAGNOSTICS_EVENTS_KEY, [])
+        if not isinstance(events, list):
+            return []
+        return list(events)
 
     @staticmethod
     def _is_waiting_for_latest_data(

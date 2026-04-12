@@ -9,7 +9,15 @@ import pytest
 pytest.importorskip("homeassistant")
 
 from custom_components.ha_egd_openapi.api import IntervalRecord
-from custom_components.ha_egd_openapi.const import ATTR_LAST_ERROR, ATTR_SYNC_STATUS
+from types import SimpleNamespace
+
+from custom_components.ha_egd_openapi.const import (
+    ATTR_LAST_ERROR,
+    ATTR_SYNC_STATUS,
+    CONF_ENABLE_DIAGNOSTICS,
+    DIAGNOSTICS_EVENTS_KEY,
+    MAX_DIAGNOSTIC_EVENTS,
+)
 from custom_components.ha_egd_openapi.coordinator import EgdDataUpdateCoordinator
 
 
@@ -17,6 +25,7 @@ def _build_coordinator() -> EgdDataUpdateCoordinator:
     """Create an uninitialized coordinator instance for pure method tests."""
     coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
     coordinator._persisted = {}  # noqa: SLF001
+    coordinator.config_entry = SimpleNamespace(options={}, data={})
     return coordinator
 
 
@@ -122,3 +131,31 @@ def test_did_timestamp_advance_only_when_value_moves_forward() -> None:
         current=None,
         previous=previous,
     )
+
+
+def test_diagnostic_events_are_stored_only_when_enabled() -> None:
+    """Structured diagnostics should respect the user toggle."""
+    coordinator = _build_coordinator()
+
+    coordinator._record_diagnostic_event("info", "disabled")  # noqa: SLF001
+    assert coordinator.get_diagnostic_events() == []
+
+    coordinator.config_entry.options[CONF_ENABLE_DIAGNOSTICS] = True
+    coordinator._record_diagnostic_event("info", "enabled", {"step": "refresh"})  # noqa: SLF001
+
+    assert coordinator.get_diagnostic_events()[0]["message"] == "enabled"
+    assert coordinator.get_diagnostic_events()[0]["details"] == {"step": "refresh"}
+
+
+def test_diagnostic_events_buffer_is_bounded() -> None:
+    """Diagnostics buffer should keep only the most recent events."""
+    coordinator = _build_coordinator()
+    coordinator.config_entry.options[CONF_ENABLE_DIAGNOSTICS] = True
+
+    for idx in range(MAX_DIAGNOSTIC_EVENTS + 5):
+        coordinator._record_diagnostic_event("debug", f"event-{idx}")  # noqa: SLF001
+
+    events = coordinator._persisted[DIAGNOSTICS_EVENTS_KEY]  # noqa: SLF001
+    assert len(events) == MAX_DIAGNOSTIC_EVENTS
+    assert events[0]["message"] == "event-5"
+    assert events[-1]["message"] == f"event-{MAX_DIAGNOSTIC_EVENTS + 4}"

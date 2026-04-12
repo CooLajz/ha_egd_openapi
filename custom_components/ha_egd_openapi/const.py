@@ -14,6 +14,7 @@ CONF_REVALIDATE_DAYS = "revalidate_days"
 CONF_IMPORT_PROFILE = "import_profile"
 CONF_EXPORT_PROFILE = "export_profile"
 CONF_NAME = "name"
+CONF_ENABLE_DIAGNOSTICS = "enable_diagnostics"
 
 DEFAULT_NAME = "EG.D Smart Meter"
 DEFAULT_UPDATE_HOUR = 16
@@ -21,6 +22,7 @@ DEFAULT_UPDATE_MINUTE = 17
 DEFAULT_REVALIDATE_DAYS = 31
 DEFAULT_IMPORT_PROFILE = "ICQ2"
 DEFAULT_EXPORT_PROFILE = "ISQ2"
+DEFAULT_ENABLE_DIAGNOSTICS = False
 
 OAUTH_URL = "https://idm.distribuce24.cz/oauth/token"
 DATA_URL = "https://data.distribuce24.cz/rest/spotreby"
@@ -28,6 +30,8 @@ STATUS_VALID = "IU012"
 
 STORE_VERSION = 1
 STORE_KEY = f"{DOMAIN}_store"
+DIAGNOSTICS_EVENTS_KEY = "diagnostics_events"
+MAX_DIAGNOSTIC_EVENTS = 500
 
 ATTR_LAST_VALID_IMPORT_TS = "last_valid_import_timestamp"
 ATTR_LAST_VALID_EXPORT_TS = "last_valid_export_timestamp"
