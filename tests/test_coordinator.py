@@ -70,20 +70,28 @@ def test_process_records_hourly_converts_quarter_hour_profiles_to_kwh() -> None:
 
 
 def test_waiting_for_latest_data_detects_missing_latest_day() -> None:
-    """Diagnostic waiting state should reflect missing import data for the latest day."""
+    """Diagnostic waiting state should reflect missing import or export data for the latest day."""
     latest_available = datetime(2026, 4, 10, 23, 45, tzinfo=timezone.utc)
 
     assert EgdDataUpdateCoordinator._is_waiting_for_latest_data(  # noqa: SLF001
         latest_available_utc=latest_available,
         last_valid_import_ts=None,
+        last_valid_export_ts=datetime(2026, 4, 10, 23, 45, tzinfo=timezone.utc),
     )
     assert EgdDataUpdateCoordinator._is_waiting_for_latest_data(  # noqa: SLF001
         latest_available_utc=latest_available,
         last_valid_import_ts=datetime(2026, 4, 9, 23, 45, tzinfo=timezone.utc),
+        last_valid_export_ts=datetime(2026, 4, 10, 23, 45, tzinfo=timezone.utc),
+    )
+    assert EgdDataUpdateCoordinator._is_waiting_for_latest_data(  # noqa: SLF001
+        latest_available_utc=latest_available,
+        last_valid_import_ts=datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc),
+        last_valid_export_ts=datetime(2026, 4, 9, 23, 45, tzinfo=timezone.utc),
     )
     assert not EgdDataUpdateCoordinator._is_waiting_for_latest_data(  # noqa: SLF001
         latest_available_utc=latest_available,
         last_valid_import_ts=datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc),
+        last_valid_export_ts=datetime(2026, 4, 10, 18, 0, tzinfo=timezone.utc),
     )
 
 

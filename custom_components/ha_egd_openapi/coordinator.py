@@ -99,15 +99,20 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         self._persisted = await self._store.async_load() or {}
 
     def should_retry_refresh(self) -> bool:
-        """Return whether latest expected import data are still missing.
+        """Return whether latest expected import or export data are still missing.
 
         This is used by a lightweight watchdog to recover from missed daily
         schedule callbacks or from cases where EG.D publishes the previous day
         later than the configured refresh time.
         """
-        latest_available_day = self._get_latest_available_utc().date()
+        latest_available_utc = self._get_latest_available_utc()
         last_valid_import = self._parse_dt(self._persisted.get(ATTR_LAST_VALID_IMPORT_TS))
-        return last_valid_import is None or last_valid_import.date() < latest_available_day
+        last_valid_export = self._parse_dt(self._persisted.get(ATTR_LAST_VALID_EXPORT_TS))
+        return self._is_waiting_for_latest_data(
+            latest_available_utc=latest_available_utc,
+            last_valid_import_ts=last_valid_import,
+            last_valid_export_ts=last_valid_export,
+        )
 
     async def _async_update_data(self) -> EnergyState:
         """Fetch data from API and update cumulative totals."""
@@ -262,6 +267,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             if self._is_waiting_for_latest_data(
                 latest_available_utc=latest_available_utc,
                 last_valid_import_ts=import_meta["last_valid_ts"],
+                last_valid_export_ts=export_meta["last_valid_ts"],
             )
             else "ok"
         )
@@ -431,11 +437,15 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         *,
         latest_available_utc: datetime,
         last_valid_import_ts: datetime | None,
+        last_valid_export_ts: datetime | None,
     ) -> bool:
-        """Return whether the latest expected import day is still missing."""
+        """Return whether the latest expected import or export day is still missing."""
+        latest_available_day = latest_available_utc.date()
         return (
             last_valid_import_ts is None
-            or last_valid_import_ts.date() < latest_available_utc.date()
+            or last_valid_import_ts.date() < latest_available_day
+            or last_valid_export_ts is None
+            or last_valid_export_ts.date() < latest_available_day
         )
 
     @staticmethod
