@@ -46,6 +46,12 @@
       },
       "total_export": {
         "name": "Total export"
+      },
+      "sync_status": {
+        "name": "Sync status"
+      },
+      "last_api_sync": {
+        "name": "Last successful sync"
       }
     }
   },

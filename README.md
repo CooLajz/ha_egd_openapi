@@ -45,24 +45,34 @@ Typicky ji využijete, pokud chcete:
 
 ## Co integrace vytváří
 
-Po úspěšném nastavení vzniknou dvě senzorové entity:
+Po úspěšném nastavení vzniknou čtyři senzorové entity:
 
 - `Celkový odběr`
 - `Celková dodávka`
+- `Stav synchronizace`
+- `Poslední úspěšná synchronizace`
 
-Obě entity mají jednotku `kWh` a jsou určené pro práci s energií v Home Assistantu.
+Entity `Celkový odběr` a `Celková dodávka` mají jednotku `kWh` a jsou určené pro práci s energií v Home Assistantu. Entity `Stav synchronizace` a `Poslední úspěšná synchronizace` jsou diagnostické.
 
 Kromě hlavní hodnoty obsahují i doplňkové atributy, například:
 
 - `ean`
 - `last_api_sync_utc`
 - `last_update_utc`
+- `sync_status`
+- `last_error`
 - `last_valid_import_timestamp`
 - `last_valid_export_timestamp`
 - `last_import_status`
 - `last_export_status`
 
 Díky tomu snadno poznáte, kdy proběhla poslední synchronizace a jaký byl stav posledního přijatého záznamu z API.
+
+Diagnostická entita `Stav synchronizace` slouží hlavně pro ladění a monitoring. Typicky ukazuje hodnotu:
+
+- `ok` pokud poslední refresh proběhl úspěšně a jsou dostupná očekávaná data,
+- `waiting_for_data` pokud EG.D ještě nezveřejnilo nejnovější očekávaný den,
+- `error` pokud poslední refresh skončil chybou.
 
 ## Jak integrace funguje
 

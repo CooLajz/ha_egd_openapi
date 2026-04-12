@@ -46,6 +46,12 @@
       },
       "total_export": {
         "name": "Celková dodávka"
+      },
+      "sync_status": {
+        "name": "Stav synchronizace"
+      },
+      "last_api_sync": {
+        "name": "Poslední úspěšná synchronizace"
       }
     }
   },

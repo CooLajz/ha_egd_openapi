@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 import logging
 from typing import Any
@@ -18,8 +18,10 @@ from homeassistant.util import dt as dt_util
 from .api import EgdApiClient, EgdApiError, EgdAuthError, IntervalRecord
 from .const import (
     ATTR_LAST_API_SYNC_UTC,
+    ATTR_LAST_ERROR,
     ATTR_LAST_EXPORT_STATUS,
     ATTR_LAST_IMPORT_STATUS,
+    ATTR_SYNC_STATUS,
     ATTR_LAST_UPDATE_UTC,
     ATTR_LAST_VALID_EXPORT_TS,
     ATTR_LAST_VALID_IMPORT_TS,
@@ -66,6 +68,8 @@ class EnergyState:
     last_export_status: str | None
     last_api_sync_utc: str | None
     last_update_utc: str | None
+    sync_status: str
+    last_error: str | None
 
 
 class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
@@ -110,11 +114,20 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         try:
             return await self._async_refresh_energy_state()
         except EgdAuthError as err:
+            self._store_error_state(str(err))
+            await self._store.async_save(self._persisted)
             raise ConfigEntryAuthFailed(str(err)) from err
         except EgdApiError as err:
+            self._store_error_state(str(err))
+            await self._store.async_save(self._persisted)
             if self.data is not None:
                 _LOGGER.warning("EG.D refresh failed, keeping last known data: %s", err)
-                return self.data
+                return replace(
+                    self.data,
+                    last_api_sync_utc=self._persisted.get(ATTR_LAST_API_SYNC_UTC),
+                    sync_status="error",
+                    last_error=str(err),
+                )
             raise UpdateFailed(str(err)) from err
 
     async def _async_refresh_energy_state(self) -> EnergyState:
@@ -244,6 +257,14 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
 
         # Důležité:
         # last_valid_* se posouvá jen pokud opravdu přišla nová validní data.
+        sync_status = (
+            "waiting_for_data"
+            if self._is_waiting_for_latest_data(
+                latest_available_utc=latest_available_utc,
+                last_valid_import_ts=import_meta["last_valid_ts"],
+            )
+            else "ok"
+        )
         state = EnergyState(
             total_import_kwh=round(total_import, 3),
             total_export_kwh=round(total_export, 3),
@@ -259,6 +280,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             last_export_status=export_meta["last_status"] or self._persisted.get(ATTR_LAST_EXPORT_STATUS),
             last_api_sync_utc=self._iso(now_utc),
             last_update_utc=self._iso(now_utc),
+            sync_status=sync_status,
+            last_error=None,
         )
 
         self._persisted.update(
@@ -271,6 +294,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 ATTR_LAST_EXPORT_STATUS: state.last_export_status,
                 ATTR_LAST_API_SYNC_UTC: state.last_api_sync_utc,
                 ATTR_LAST_UPDATE_UTC: state.last_update_utc,
+                ATTR_SYNC_STATUS: state.sync_status,
+                ATTR_LAST_ERROR: state.last_error,
             }
         )
 
@@ -376,6 +401,25 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         else:
             total = float(self._persisted.get(persisted_total_key, 0.0))
         return total, rows
+
+    def _store_error_state(self, error_message: str) -> None:
+        """Persist the last refresh error for diagnostic entities."""
+        now_utc = self._iso(dt_util.utcnow().astimezone(timezone.utc))
+        self._persisted[ATTR_LAST_ERROR] = error_message
+        self._persisted[ATTR_SYNC_STATUS] = "error"
+        self._persisted[ATTR_LAST_API_SYNC_UTC] = now_utc
+
+    @staticmethod
+    def _is_waiting_for_latest_data(
+        *,
+        latest_available_utc: datetime,
+        last_valid_import_ts: datetime | None,
+    ) -> bool:
+        """Return whether the latest expected import day is still missing."""
+        return (
+            last_valid_import_ts is None
+            or last_valid_import_ts.date() < latest_available_utc.date()
+        )
 
     def _get_revalidation_start(self, latest_available_utc: datetime) -> datetime:
         """Return start of rolling revalidation window in UTC."""

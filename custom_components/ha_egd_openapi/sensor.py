@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -13,14 +14,17 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_EAN,
     ATTR_LAST_API_SYNC_UTC,
+    ATTR_LAST_ERROR,
     ATTR_LAST_EXPORT_STATUS,
     ATTR_LAST_IMPORT_STATUS,
+    ATTR_SYNC_STATUS,
     ATTR_LAST_UPDATE_UTC,
     ATTR_LAST_VALID_EXPORT_TS,
     ATTR_LAST_VALID_IMPORT_TS,
@@ -55,6 +59,23 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=None,
         suggested_display_precision=3,
+    ),
+    EgdSensorDescription(
+        key="sync_status",
+        translation_key="sync_status",
+        name="Sync status",
+        value_key="sync_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:sync",
+    ),
+    EgdSensorDescription(
+        key="last_api_sync",
+        translation_key="last_api_sync",
+        name="Last successful sync",
+        value_key="last_api_sync_utc",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:clock-check-outline",
     ),
 )
 
@@ -95,11 +116,14 @@ class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity)
         }
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> Any | None:
         data = self.coordinator.data
         if data is None:
             return None
-        return getattr(data, self.entity_description.value_key)
+        value = getattr(data, self.entity_description.value_key)
+        if self.entity_description.device_class is SensorDeviceClass.TIMESTAMP and isinstance(value, str):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return value
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -110,6 +134,15 @@ class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity)
 
         attrs[ATTR_LAST_API_SYNC_UTC] = data.last_api_sync_utc
         attrs[ATTR_LAST_UPDATE_UTC] = data.last_update_utc
+        attrs[ATTR_SYNC_STATUS] = data.sync_status
+
+        if self.entity_description.key in {"sync_status", "last_api_sync"}:
+            attrs[ATTR_LAST_ERROR] = data.last_error
+            attrs[ATTR_LAST_VALID_IMPORT_TS] = data.last_valid_import_timestamp
+            attrs[ATTR_LAST_VALID_EXPORT_TS] = data.last_valid_export_timestamp
+            attrs[ATTR_LAST_IMPORT_STATUS] = data.last_import_status
+            attrs[ATTR_LAST_EXPORT_STATUS] = data.last_export_status
+            return attrs
 
         if self.entity_description.key == "total_import":
             attrs[ATTR_LAST_VALID_IMPORT_TS] = data.last_valid_import_timestamp
