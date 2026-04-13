@@ -137,6 +137,14 @@ class EgdApiClient:
         self._log_diagnostic("debug", "token_request_started")
         try:
             async with self._session.post(OAUTH_URL, json=payload, timeout=30) as response:
+                if response.status in (401, 403):
+                    body = (await response.text()).strip()
+                    self._log_diagnostic(
+                        "error",
+                        "token_request_auth_failed",
+                        {"status": response.status, "body": body[:300]},
+                    )
+                    raise EgdAuthError(f"Authentication failed: HTTP {response.status}")
                 data = await self._async_read_json_response(
                     response,
                     context="Token request",
@@ -149,13 +157,6 @@ class EgdApiClient:
             )
             raise EgdApiError(f"Token request failed: {err}") from err
 
-        if response.status in (401, 403):
-            self._log_diagnostic(
-                "error",
-                "token_request_auth_failed",
-                {"status": response.status},
-            )
-            raise EgdAuthError(f"Authentication failed: HTTP {response.status}")
         if response.status >= 400:
             self._log_diagnostic(
                 "error",
@@ -221,6 +222,21 @@ class EgdApiClient:
                 async with self._session.get(
                     DATA_URL, params=params, headers=headers, timeout=60
                 ) as response:
+                    if response.status in (401, 403):
+                        body = (await response.text()).strip()
+                        self._access_token = None
+                        self._log_diagnostic(
+                            "warning",
+                            "profile_request_auth_retry",
+                            {
+                                "status": response.status,
+                                "attempt": attempt + 1,
+                                "body": body[:300],
+                            },
+                        )
+                        if attempt == 0:
+                            continue
+                        raise EgdAuthError(f"Authentication failed: HTTP {response.status}")
                     data = await self._async_read_json_response(
                         response,
                         context="Data request",
@@ -232,18 +248,6 @@ class EgdApiClient:
                     {"reason": str(err), "attempt": attempt + 1},
                 )
                 raise EgdApiError(f"Data request failed: {err}") from err
-
-            if response.status in (401, 403):
-                self._access_token = None
-                self._log_diagnostic(
-                    "warning",
-                    "profile_request_auth_retry",
-                    {"status": response.status, "attempt": attempt + 1},
-                )
-                if attempt == 0:
-                    continue
-                raise EgdAuthError(f"Authentication failed: HTTP {response.status}")
-
             self._log_diagnostic(
                 "debug",
                 "profile_request_finished",
