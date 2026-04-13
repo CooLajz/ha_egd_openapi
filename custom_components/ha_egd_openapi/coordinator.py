@@ -113,6 +113,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         """Load persisted state."""
         self._persisted = await self._store.async_load() or {}
         self._persisted.setdefault(DIAGNOSTICS_EVENTS_KEY, [])
+        self.data = self._build_state_from_persisted()
 
     def should_retry_refresh(self) -> bool:
         """Return whether latest expected import or export data are still missing.
@@ -572,8 +573,60 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         now_utc = self._iso(dt_util.utcnow().astimezone(timezone.utc))
         self._persisted[ATTR_LAST_ERROR] = error_message
         self._persisted[ATTR_SYNC_STATUS] = "error"
-        self._persisted[ATTR_LAST_API_SYNC_UTC] = now_utc
+        self._persisted[ATTR_LAST_UPDATE_UTC] = now_utc
         self._persisted[ATTR_LAST_CHECK_FINISHED_UTC] = now_utc
+        next_sync_attempt_utc, next_sync_reason = self._get_next_sync_attempt(
+            now_utc=dt_util.utcnow().astimezone(timezone.utc),
+            sync_status="error",
+        )
+        self._persisted[ATTR_NEXT_SYNC_ATTEMPT_UTC] = self._iso(next_sync_attempt_utc)
+        self._persisted[ATTR_NEXT_SYNC_REASON] = next_sync_reason
+
+    def _build_state_from_persisted(self) -> EnergyState | None:
+        """Hydrate runtime state from persisted storage when available."""
+        has_state = any(
+            key in self._persisted
+            for key in (
+                "total_import_kwh",
+                "total_export_kwh",
+                ATTR_LAST_VALID_IMPORT_TS,
+                ATTR_LAST_VALID_EXPORT_TS,
+                ATTR_LAST_API_SYNC_UTC,
+                ATTR_SYNC_STATUS,
+                ATTR_LAST_ERROR,
+            )
+        )
+        if not has_state:
+            return None
+
+        sync_status = str(self._persisted.get(ATTR_SYNC_STATUS) or "waiting_for_data")
+        now_utc = dt_util.utcnow().astimezone(timezone.utc)
+        next_sync_attempt_utc = self._persisted.get(ATTR_NEXT_SYNC_ATTEMPT_UTC)
+        next_sync_reason = self._persisted.get(ATTR_NEXT_SYNC_REASON)
+        if next_sync_attempt_utc is None or next_sync_reason is None:
+            next_attempt, next_reason = self._get_next_sync_attempt(
+                now_utc=now_utc,
+                sync_status=sync_status,
+            )
+            next_sync_attempt_utc = self._iso(next_attempt)
+            next_sync_reason = next_reason
+
+        return EnergyState(
+            total_import_kwh=round(float(self._persisted.get("total_import_kwh", 0.0)), 3),
+            total_export_kwh=round(float(self._persisted.get("total_export_kwh", 0.0)), 3),
+            last_valid_import_timestamp=self._persisted.get(ATTR_LAST_VALID_IMPORT_TS),
+            last_valid_export_timestamp=self._persisted.get(ATTR_LAST_VALID_EXPORT_TS),
+            last_import_status=self._persisted.get(ATTR_LAST_IMPORT_STATUS),
+            last_export_status=self._persisted.get(ATTR_LAST_EXPORT_STATUS),
+            last_api_sync_utc=self._persisted.get(ATTR_LAST_API_SYNC_UTC),
+            last_update_utc=self._persisted.get(ATTR_LAST_UPDATE_UTC),
+            sync_status=sync_status,
+            last_error=self._persisted.get(ATTR_LAST_ERROR),
+            last_check_started_utc=self._persisted.get(ATTR_LAST_CHECK_STARTED_UTC),
+            last_check_finished_utc=self._persisted.get(ATTR_LAST_CHECK_FINISHED_UTC),
+            next_sync_attempt_utc=next_sync_attempt_utc,
+            next_sync_reason=next_sync_reason,
+        )
 
     def diagnostics_enabled(self) -> bool:
         """Return whether structured diagnostics collection is enabled."""
