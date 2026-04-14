@@ -157,6 +157,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 continue
 
             previous_sync = coordinator.data.last_api_sync_utc if coordinator.data else None
+            automatic_state_snapshot = coordinator.snapshot_automatic_state()
             coordinator._record_diagnostic_event(  # noqa: SLF001
                 "info",
                 "manual_refresh_requested",
@@ -185,6 +186,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                     message = "Data are already up to date"
 
                 await coordinator.async_store_manual_refresh_result(result)
+                if result != "new_data_loaded":
+                    await coordinator.async_restore_automatic_state(automatic_state_snapshot)
+                    state = coordinator.data
                 coordinator._record_diagnostic_event(  # noqa: SLF001
                     "info" if result != "error" else "error",
                     "manual_refresh_completed",
@@ -210,6 +214,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             except Exception as err:  # noqa: BLE001
                 overall_ok = False
                 await coordinator.async_store_manual_refresh_result("error")
+                await coordinator.async_restore_automatic_state(automatic_state_snapshot)
                 coordinator._record_diagnostic_event(  # noqa: SLF001
                     "error",
                     "manual_refresh_failed",

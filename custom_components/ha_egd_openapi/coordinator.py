@@ -97,6 +97,16 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     _EXPORT_CACHE_KEY = "export_hourly_deltas"
     _IMPORT_CACHE_COMPLETE_KEY = "import_hourly_deltas_complete"
     _EXPORT_CACHE_COMPLETE_KEY = "export_hourly_deltas_complete"
+    _MANUAL_RESTORE_KEYS = (
+        ATTR_LAST_API_SYNC_UTC,
+        ATTR_LAST_UPDATE_UTC,
+        ATTR_SYNC_STATUS,
+        ATTR_LAST_ERROR,
+        ATTR_LAST_CHECK_STARTED_UTC,
+        ATTR_LAST_CHECK_FINISHED_UTC,
+        ATTR_NEXT_SYNC_ATTEMPT_UTC,
+        ATTR_NEXT_SYNC_REASON,
+    )
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: EgdApiClient) -> None:
         self.hass = hass
@@ -667,6 +677,35 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 last_manual_refresh_result=result,
             )
             self.async_update_listeners()
+
+    def snapshot_automatic_state(self) -> tuple[EnergyState | None, dict[str, Any]]:
+        """Capture coordinator state that manual refreshes must not overwrite."""
+        persisted = {
+            key: self._persisted.get(key)
+            for key in self._MANUAL_RESTORE_KEYS
+        }
+        return self.data, persisted
+
+    async def async_restore_automatic_state(
+        self,
+        snapshot: tuple[EnergyState | None, dict[str, Any]],
+    ) -> None:
+        """Restore automatic sync state after a non-authoritative manual refresh."""
+        previous_data, persisted = snapshot
+        for key, value in persisted.items():
+            self._persisted[key] = value
+
+        if previous_data is not None:
+            self.data = replace(
+                previous_data,
+                last_manual_refresh_utc=self._persisted.get(ATTR_LAST_MANUAL_REFRESH_UTC),
+                last_manual_refresh_result=self._persisted.get(ATTR_LAST_MANUAL_REFRESH_RESULT),
+            )
+        else:
+            self.data = None
+
+        await self._store.async_save(self._persisted)
+        self.async_update_listeners()
 
     def diagnostics_enabled(self) -> bool:
         """Return whether structured diagnostics collection is enabled."""
