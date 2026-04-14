@@ -1,5 +1,5 @@
 egd_remove_statistics_entity:
-  name: Remove EG.D statistics entity
+  name: EG.D remove statistics
   description: Remove imported EG.D statistics and reset stored checkpoints.
   fields:
     entry_id:
@@ -16,7 +16,7 @@ egd_remove_statistics_entity:
         text:
 
 force_refresh:
-  name: Force refresh
+  name: EG.D force refresh
   description: Trigger an immediate EG.D refresh outside the configured daily schedule.
   fields:
     entry_id:

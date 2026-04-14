@@ -68,7 +68,7 @@
   },
   "services": {
     "egd_remove_statistics_entity": {
-      "name": "Odstranit statistiky EG.D",
+      "name": "EG.D odstranit statistiky",
       "description": "Smaže importované statistiky EG.D a resetuje uložené checkpointy.",
       "fields": {
         "entry_id": {
@@ -82,7 +82,7 @@
       }
     },
     "force_refresh": {
-      "name": "Vynutit synchronizaci",
+      "name": "EG.D vynutit synchronizaci",
       "description": "Spustí okamžitou synchronizaci EG.D mimo nastavený denní plán.",
       "fields": {
         "entry_id": {

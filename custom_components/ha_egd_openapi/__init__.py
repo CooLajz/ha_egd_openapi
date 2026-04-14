@@ -228,6 +228,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                     }
                 )
 
+        return {
+            "ok": overall_ok,
+            "results": results,
+        }
+
     if not hass.services.has_service(DOMAIN, SERVICE_REMOVE_STATISTICS):
         hass.services.async_register(
             DOMAIN,
