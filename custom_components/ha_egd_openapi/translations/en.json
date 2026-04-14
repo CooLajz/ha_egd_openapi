@@ -80,6 +80,20 @@
           "description": "Remove statistics only for one EAN."
         }
       }
+    },
+    "force_refresh": {
+      "name": "Force refresh",
+      "description": "Trigger an immediate EG.D refresh outside the configured daily schedule.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "Refresh only one config entry."
+        },
+        "ean": {
+          "name": "EAN",
+          "description": "Refresh only one EAN."
+        }
+      }
     }
   }
 }

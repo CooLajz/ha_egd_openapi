@@ -80,6 +80,20 @@
           "description": "Smaže statistiky jen pro jeden EAN."
         }
       }
+    },
+    "force_refresh": {
+      "name": "Vynutit synchronizaci",
+      "description": "Spustí okamžitou synchronizaci EG.D mimo nastavený denní plán.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "Spustí synchronizaci jen pro jeden konfigurační záznam."
+        },
+        "ean": {
+          "name": "EAN",
+          "description": "Spustí synchronizaci jen pro jeden EAN."
+        }
+      }
     }
   }
 }

@@ -10,7 +10,7 @@ import voluptuous as vol
 from homeassistant.components.recorder import get_instance
 from homeassistant.helpers import config_validation as cv
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import aiohttp_client, event
 from homeassistant.helpers.storage import Store
@@ -33,9 +33,17 @@ from .coordinator import EgdDataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 SERVICE_REMOVE_STATISTICS = "egd_remove_statistics_entity"
+SERVICE_FORCE_REFRESH = "force_refresh"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 SERVICE_SCHEMA_REMOVE_STATISTICS = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Optional("ean"): str,
+    }
+)
+
+SERVICE_SCHEMA_FORCE_REFRESH = vol.Schema(
     {
         vol.Optional("entry_id"): str,
         vol.Optional("ean"): str,
@@ -56,12 +64,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up EG.D integration domain."""
     hass.data.setdefault(DOMAIN, {})
 
-    async def _handle_remove_statistics(call: ServiceCall) -> None:
-        """Remove external statistics and matching integration store."""
+    def _match_entries(call: ServiceCall) -> list[ConfigEntry]:
+        """Return config entries targeted by a service call."""
         entry_id: str | None = call.data.get("entry_id")
         ean: str | None = call.data.get("ean")
-
-        statistic_ids: list[str] = []
         matched_entries: list[ConfigEntry] = []
 
         for entry in hass.config_entries.async_entries(DOMAIN):
@@ -75,6 +81,19 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 continue
 
             matched_entries.append(entry)
+
+        return matched_entries
+
+    async def _handle_remove_statistics(call: ServiceCall) -> None:
+        """Remove external statistics and matching integration store."""
+        entry_id: str | None = call.data.get("entry_id")
+        ean: str | None = call.data.get("ean")
+
+        statistic_ids: list[str] = []
+        matched_entries = _match_entries(call)
+
+        for entry in matched_entries:
+            entry_ean = str(entry.data.get(CONF_EAN, "")).strip()
             statistic_ids.extend(_build_statistic_ids_for_ean(entry_ean))
 
         # Allow cleanup by explicit EAN even if no config entry currently exists
@@ -107,12 +126,123 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             if coordinator is not None:
                 coordinator._persisted = {}  # noqa: SLF001
 
+    async def _handle_force_refresh(call: ServiceCall) -> dict[str, object]:
+        """Force a refresh outside the configured daily schedule."""
+        matched_entries = _match_entries(call)
+        if not matched_entries:
+            entry_id: str | None = call.data.get("entry_id")
+            ean: str | None = call.data.get("ean")
+            return {
+                "ok": False,
+                "results": [],
+                "message": f"No EG.D entries matched for force refresh (entry_id={entry_id}, ean={ean})",
+            }
+
+        results: list[dict[str, object]] = []
+        overall_ok = True
+
+        for entry in matched_entries:
+            coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+            entry_ean = str(entry.data.get(CONF_EAN, "")).strip()
+            if coordinator is None:
+                overall_ok = False
+                results.append(
+                    {
+                        "entry_id": entry.entry_id,
+                        "ean": entry_ean,
+                        "result": "error",
+                        "message": "Coordinator is not loaded",
+                    }
+                )
+                continue
+
+            previous_sync = coordinator.data.last_api_sync_utc if coordinator.data else None
+            coordinator._record_diagnostic_event(  # noqa: SLF001
+                "info",
+                "manual_refresh_requested",
+                {"entry_id": entry.entry_id},
+            )
+
+            try:
+                await coordinator.async_request_refresh()
+                state = coordinator.data
+                if state is None:
+                    result = "error"
+                    message = "Refresh finished without state"
+                    overall_ok = False
+                elif state.sync_status == "error":
+                    result = "error"
+                    message = state.last_error or "Refresh failed"
+                    overall_ok = False
+                elif state.last_api_sync_utc != previous_sync:
+                    result = "new_data_loaded"
+                    message = "New data loaded successfully"
+                elif state.sync_status == "waiting_for_data":
+                    result = "waiting_for_data"
+                    message = "No newer data are available yet"
+                else:
+                    result = "up_to_date"
+                    message = "Data are already up to date"
+
+                await coordinator.async_store_manual_refresh_result(result)
+                coordinator._record_diagnostic_event(  # noqa: SLF001
+                    "info" if result != "error" else "error",
+                    "manual_refresh_completed",
+                    {
+                        "entry_id": entry.entry_id,
+                        "result": result,
+                        "message": message,
+                    },
+                )
+                await coordinator._store.async_save(coordinator._persisted)  # noqa: SLF001
+
+                results.append(
+                    {
+                        "entry_id": entry.entry_id,
+                        "ean": entry_ean,
+                        "result": result,
+                        "message": message,
+                        "sync_status": state.sync_status if state is not None else None,
+                        "last_api_sync_utc": state.last_api_sync_utc if state is not None else None,
+                        "last_error": state.last_error if state is not None else None,
+                    }
+                )
+            except Exception as err:  # noqa: BLE001
+                overall_ok = False
+                await coordinator.async_store_manual_refresh_result("error")
+                coordinator._record_diagnostic_event(  # noqa: SLF001
+                    "error",
+                    "manual_refresh_failed",
+                    {
+                        "entry_id": entry.entry_id,
+                        "reason": str(err),
+                    },
+                )
+                await coordinator._store.async_save(coordinator._persisted)  # noqa: SLF001
+                results.append(
+                    {
+                        "entry_id": entry.entry_id,
+                        "ean": entry_ean,
+                        "result": "error",
+                        "message": str(err),
+                    }
+                )
+
     if not hass.services.has_service(DOMAIN, SERVICE_REMOVE_STATISTICS):
         hass.services.async_register(
             DOMAIN,
             SERVICE_REMOVE_STATISTICS,
             _handle_remove_statistics,
             schema=SERVICE_SCHEMA_REMOVE_STATISTICS,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_FORCE_REFRESH):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_FORCE_REFRESH,
+            _handle_force_refresh,
+            schema=SERVICE_SCHEMA_FORCE_REFRESH,
+            supports_response=SupportsResponse.OPTIONAL,
         )
 
     return True

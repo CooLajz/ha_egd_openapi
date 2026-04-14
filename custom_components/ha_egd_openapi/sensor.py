@@ -26,6 +26,8 @@ from .const import (
     ATTR_LAST_ERROR,
     ATTR_LAST_EXPORT_STATUS,
     ATTR_LAST_IMPORT_STATUS,
+    ATTR_LAST_MANUAL_REFRESH_RESULT,
+    ATTR_LAST_MANUAL_REFRESH_UTC,
     ATTR_LAST_UPDATE_UTC,
     ATTR_LAST_VALID_EXPORT_TS,
     ATTR_LAST_VALID_IMPORT_TS,
@@ -168,6 +170,8 @@ class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity)
             attrs[ATTR_LAST_VALID_EXPORT_TS] = data.last_valid_export_timestamp
             attrs[ATTR_LAST_IMPORT_STATUS] = data.last_import_status
             attrs[ATTR_LAST_EXPORT_STATUS] = data.last_export_status
+            attrs[ATTR_LAST_MANUAL_REFRESH_UTC] = data.last_manual_refresh_utc
+            attrs[ATTR_LAST_MANUAL_REFRESH_RESULT] = data.last_manual_refresh_result
             return attrs
 
         if self.entity_description.key == "total_import":

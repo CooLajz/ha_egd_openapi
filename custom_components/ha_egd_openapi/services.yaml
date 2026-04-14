@@ -14,3 +14,20 @@ egd_remove_statistics_entity:
       required: false
       selector:
         text:
+
+force_refresh:
+  name: Force refresh
+  description: Trigger an immediate EG.D refresh outside the configured daily schedule.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Refresh only one config entry.
+      required: false
+      selector:
+        text:
+    ean:
+      name: EAN
+      description: Refresh only one EAN.
+      required: false
+      selector:
+        text:

@@ -23,6 +23,8 @@ from .const import (
     ATTR_LAST_ERROR,
     ATTR_LAST_EXPORT_STATUS,
     ATTR_LAST_IMPORT_STATUS,
+    ATTR_LAST_MANUAL_REFRESH_RESULT,
+    ATTR_LAST_MANUAL_REFRESH_UTC,
     ATTR_NEXT_SYNC_ATTEMPT_UTC,
     ATTR_NEXT_SYNC_REASON,
     ATTR_SYNC_STATUS,
@@ -84,6 +86,8 @@ class EnergyState:
     last_check_finished_utc: str | None
     next_sync_attempt_utc: str | None
     next_sync_reason: str | None
+    last_manual_refresh_utc: str | None
+    last_manual_refresh_result: str | None
 
 
 class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
@@ -406,6 +410,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             last_check_finished_utc=self._iso(now_utc),
             next_sync_attempt_utc=self._iso(next_sync_attempt_utc),
             next_sync_reason=next_sync_reason,
+            last_manual_refresh_utc=self._persisted.get(ATTR_LAST_MANUAL_REFRESH_UTC),
+            last_manual_refresh_result=self._persisted.get(ATTR_LAST_MANUAL_REFRESH_RESULT),
         )
         self._record_diagnostic_event(
             "info",
@@ -436,6 +442,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 ATTR_LAST_CHECK_FINISHED_UTC: state.last_check_finished_utc,
                 ATTR_NEXT_SYNC_ATTEMPT_UTC: state.next_sync_attempt_utc,
                 ATTR_NEXT_SYNC_REASON: state.next_sync_reason,
+                ATTR_LAST_MANUAL_REFRESH_UTC: state.last_manual_refresh_utc,
+                ATTR_LAST_MANUAL_REFRESH_RESULT: state.last_manual_refresh_result,
             }
         )
 
@@ -641,7 +649,24 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             last_check_finished_utc=self._persisted.get(ATTR_LAST_CHECK_FINISHED_UTC),
             next_sync_attempt_utc=next_sync_attempt_utc,
             next_sync_reason=next_sync_reason,
+            last_manual_refresh_utc=self._persisted.get(ATTR_LAST_MANUAL_REFRESH_UTC),
+            last_manual_refresh_result=self._persisted.get(ATTR_LAST_MANUAL_REFRESH_RESULT),
         )
+
+    async def async_store_manual_refresh_result(self, result: str) -> None:
+        """Persist metadata about the last manual refresh attempt."""
+        refreshed_at = self._iso(dt_util.utcnow().astimezone(timezone.utc))
+        self._persisted[ATTR_LAST_MANUAL_REFRESH_UTC] = refreshed_at
+        self._persisted[ATTR_LAST_MANUAL_REFRESH_RESULT] = result
+        await self._store.async_save(self._persisted)
+
+        if self.data is not None:
+            self.data = replace(
+                self.data,
+                last_manual_refresh_utc=refreshed_at,
+                last_manual_refresh_result=result,
+            )
+            self.async_update_listeners()
 
     def diagnostics_enabled(self) -> bool:
         """Return whether structured diagnostics collection is enabled."""
