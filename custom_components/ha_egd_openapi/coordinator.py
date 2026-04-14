@@ -131,6 +131,21 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             last_valid_export_ts=last_valid_export,
         )
 
+    def should_refresh_on_startup(self) -> bool:
+        """Return whether setup should trigger an immediate refresh.
+
+        When a persisted state exists, respect the stored next sync attempt so
+        a Home Assistant restart does not bypass the configured schedule.
+        """
+        if self.data is None:
+            return True
+
+        next_sync_attempt = self._parse_dt(self._persisted.get(ATTR_NEXT_SYNC_ATTEMPT_UTC))
+        if next_sync_attempt is None:
+            return True
+
+        return next_sync_attempt <= dt_util.utcnow().astimezone(timezone.utc)
+
     async def _async_update_data(self) -> EnergyState:
         """Fetch data from API and update cumulative totals."""
         check_started_utc = self._iso(dt_util.utcnow().astimezone(timezone.utc))

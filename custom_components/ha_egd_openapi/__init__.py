@@ -129,12 +129,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = EgdDataUpdateCoordinator(hass, entry, client)
     await coordinator.async_load()
 
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except EgdAuthError as err:
-        raise ConfigEntryNotReady(f"Authentication not ready yet: {err}") from err
-    except EgdApiError as err:
-        raise ConfigEntryNotReady(str(err)) from err
+    if coordinator.should_refresh_on_startup():
+        try:
+            await coordinator.async_config_entry_first_refresh()
+        except EgdAuthError as err:
+            raise ConfigEntryNotReady(f"Authentication not ready yet: {err}") from err
+        except EgdApiError as err:
+            raise ConfigEntryNotReady(str(err)) from err
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
