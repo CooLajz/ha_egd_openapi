@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 import voluptuous as vol
@@ -292,6 +292,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Do not retry before the user-configured daily sync time.
         if (now_local.hour, now_local.minute) < (scheduled_hour, scheduled_minute):
+            await coordinator.async_refresh_next_sync_projection(now.astimezone(timezone.utc))
             return
 
         if not coordinator.should_retry_refresh():

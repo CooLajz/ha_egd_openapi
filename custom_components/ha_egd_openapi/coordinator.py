@@ -636,7 +636,12 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         now_utc = dt_util.utcnow().astimezone(timezone.utc)
         next_sync_attempt_utc = self._persisted.get(ATTR_NEXT_SYNC_ATTEMPT_UTC)
         next_sync_reason = self._persisted.get(ATTR_NEXT_SYNC_REASON)
-        if next_sync_attempt_utc is None or next_sync_reason is None:
+        next_sync_attempt_dt = self._parse_dt(next_sync_attempt_utc)
+        if (
+            next_sync_attempt_utc is None
+            or next_sync_reason is None
+            or (next_sync_attempt_dt is not None and next_sync_attempt_dt <= now_utc)
+        ):
             next_attempt, next_reason = self._get_next_sync_attempt(
                 now_utc=now_utc,
                 sync_status=sync_status,
@@ -707,6 +712,34 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         await self._store.async_save(self._persisted)
         self.async_update_listeners()
 
+    async def async_refresh_next_sync_projection(self, now_utc: datetime | None = None) -> None:
+        """Refresh the projected next sync timestamp without fetching new data."""
+        if self.data is None:
+            return
+
+        resolved_now = now_utc or dt_util.utcnow().astimezone(timezone.utc)
+        next_sync_attempt_utc, next_sync_reason = self._get_next_sync_attempt(
+            now_utc=resolved_now,
+            sync_status=self.data.sync_status,
+        )
+        next_sync_attempt_iso = self._iso(next_sync_attempt_utc)
+
+        if (
+            self.data.next_sync_attempt_utc == next_sync_attempt_iso
+            and self.data.next_sync_reason == next_sync_reason
+        ):
+            return
+
+        self._persisted[ATTR_NEXT_SYNC_ATTEMPT_UTC] = next_sync_attempt_iso
+        self._persisted[ATTR_NEXT_SYNC_REASON] = next_sync_reason
+        self.data = replace(
+            self.data,
+            next_sync_attempt_utc=next_sync_attempt_iso,
+            next_sync_reason=next_sync_reason,
+        )
+        await self._store.async_save(self._persisted)
+        self.async_update_listeners()
+
     def diagnostics_enabled(self) -> bool:
         """Return whether structured diagnostics collection is enabled."""
         return bool(
@@ -761,6 +794,17 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         """Return the next automatic sync attempt and why it will happen."""
         daily_attempt = self._get_next_daily_sync_attempt(now_utc)
         if sync_status == "waiting_for_data":
+            scheduled_hour = self.config_entry.options.get(
+                CONF_UPDATE_HOUR,
+                self.config_entry.data[CONF_UPDATE_HOUR],
+            )
+            scheduled_minute = self.config_entry.options.get(
+                CONF_UPDATE_MINUTE,
+                self.config_entry.data[CONF_UPDATE_MINUTE],
+            )
+            now_local = dt_util.as_local(now_utc)
+            if (now_local.hour, now_local.minute) < (scheduled_hour, scheduled_minute):
+                return daily_attempt, "scheduled_daily"
             return now_utc + timedelta(hours=1), "watchdog_retry"
         return daily_attempt, "scheduled_daily"
 
