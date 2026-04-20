@@ -378,7 +378,10 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             )
             else "ok"
         )
-        should_advance_successful_sync = sync_status == "ok" and (
+        # last_api_sync_utc means the latest successful sync that delivered
+        # fresher usable data, even if EG.D still does not provide the whole
+        # newest expected day and the state remains waiting_for_data.
+        should_advance_successful_sync = (
             bool(import_stats)
             or bool(export_stats)
             or self._did_timestamp_advance(
