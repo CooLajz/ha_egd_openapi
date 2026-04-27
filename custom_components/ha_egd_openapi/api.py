@@ -17,6 +17,8 @@ _LOGGER = logging.getLogger(__name__)
 
 AUTHORIZATION_ERROR_FRAGMENT = "nemáte oprávnění na data odběrného místa"
 VALIDATION_ERROR_FRAGMENT = "validation_error"
+DEFAULT_PAGE_SIZE = 3000
+MAX_PROFILE_CHUNK = timedelta(days=30, hours=23, minutes=45)
 
 
 def _safe_three_year_cap(reference: datetime | None = None) -> datetime:
@@ -322,8 +324,9 @@ class EgdApiClient:
     ) -> list[IntervalRecord]:
         """Fetch all pages of profile data.
 
-        EG.D rejects a single request if the requested period is longer than one year,
-        so longer ranges are split into smaller chunks automatically.
+        EG.D pagination is not reliable for large cold-start windows. Keep each
+        request below the default 3000-row page size so initial imports behave
+        like the rolling revalidation window.
         """
         if from_dt.tzinfo is None or to_dt.tzinfo is None:
             raise ValueError("from_dt and to_dt must be timezone-aware")
@@ -350,10 +353,8 @@ class EgdApiClient:
         all_records: list[IntervalRecord] = []
         chunk_start = effective_from
         final_to = effective_to
-        max_chunk = timedelta(days=364, hours=23, minutes=45)
-
         while chunk_start <= final_to:
-            chunk_end = min(chunk_start + max_chunk, final_to)
+            chunk_end = min(chunk_start + MAX_PROFILE_CHUNK, final_to)
             chunk_records = await self._async_get_profile_data_chunk(
                 ean=ean,
                 profile=profile,
@@ -393,7 +394,7 @@ class EgdApiClient:
         profile: str,
         from_dt: datetime,
         to_dt: datetime,
-        page_size: int = 3000,
+        page_size: int = DEFAULT_PAGE_SIZE,
     ) -> list[IntervalRecord]:
         """Fetch one API chunk including paging."""
         # In practice EG.D pagination behaves as 1-based even though the PDF
