@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip("homeassistant")
+from homeassistant.components.sensor import SensorStateClass
 
 from custom_components.ha_egd_openapi.const import CONF_EAN
 from custom_components.ha_egd_openapi.coordinator import EnergyState
@@ -88,8 +89,17 @@ def test_total_import_sensor_keeps_energy_value_and_import_attributes() -> None:
     sensor = _build_sensor("total_import", _build_state())
 
     assert sensor.native_value == 123.456
+    assert sensor.entity_description.state_class is SensorStateClass.TOTAL_INCREASING
     assert sensor.extra_state_attributes["last_import_status"] == "IU012"
     assert "last_export_status" not in sensor.extra_state_attributes
+
+
+def test_total_export_sensor_uses_total_increasing_state_class() -> None:
+    """Export energy sensor should be eligible for long-term statistics."""
+    sensor = _build_sensor("total_export", _build_state())
+
+    assert sensor.native_value == 78.9
+    assert sensor.entity_description.state_class is SensorStateClass.TOTAL_INCREASING
 
 
 def test_next_sync_attempt_sensor_is_timestamp_and_exposes_reason() -> None:

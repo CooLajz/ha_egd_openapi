@@ -10,6 +10,7 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
+    SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
@@ -53,7 +54,7 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         value_key="total_import_kwh",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=None,
+        state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=3,
     ),
     EgdSensorDescription(
@@ -63,7 +64,7 @@ SENSORS: tuple[EgdSensorDescription, ...] = (
         value_key="total_export_kwh",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=None,
+        state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=3,
     ),
     EgdSensorDescription(
