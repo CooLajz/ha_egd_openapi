@@ -419,7 +419,14 @@ class EgdApiClient:
                         f"Data request failed: HTTP {status} {data}", payload=data
                     )
                 raise EgdApiError(f"Data request failed: HTTP {status} {data}")
-            if not isinstance(data, list) or not data:
+            if isinstance(data, dict):
+                payloads = [data]
+            elif isinstance(data, list):
+                payloads = data
+            else:
+                payloads = []
+
+            if not payloads:
                 self._log_diagnostic(
                     "debug",
                     "profile_chunk_empty",
@@ -431,7 +438,7 @@ class EgdApiClient:
                 )
                 return records
 
-            payload = data[0]
+            payload = payloads[0]
             batch = payload.get("data", [])
             total = int(payload.get("total", len(batch)))
 

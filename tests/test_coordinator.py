@@ -39,7 +39,7 @@ def test_process_records_hourly_filters_invalid_statuses() -> None:
         IntervalRecord(
             timestamp=datetime(2026, 4, 10, 0, 0, tzinfo=timezone.utc),
             value=1.0,
-            status="IU012",
+            status="W",
         ),
         IntervalRecord(
             timestamp=datetime(2026, 4, 10, 0, 15, tzinfo=timezone.utc),

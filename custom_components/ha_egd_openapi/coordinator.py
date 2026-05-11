@@ -56,7 +56,7 @@ PROFILE_MIN_DATES: dict[str, date] = {
 }
 
 # Návod EG.D doporučuje zapisovat jen standardně platné A/B hodnoty.
-ALLOWED_STATUSES = {"IU012"}
+ALLOWED_STATUSES = {"IU012", "W"}
 
 
 def _three_years_ago_safe(dt: datetime) -> datetime:
