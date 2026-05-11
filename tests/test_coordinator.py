@@ -21,6 +21,25 @@ from custom_components.ha_egd_openapi.const import (
 from custom_components.ha_egd_openapi.coordinator import EgdDataUpdateCoordinator
 
 
+class _ProbeClient:
+    """Probe test double that allows access from a configured day."""
+
+    def __init__(self, accessible_from: datetime) -> None:
+        self.accessible_from = accessible_from
+        self.probes: list[tuple[datetime, datetime]] = []
+
+    async def async_probe_access(
+        self,
+        *,
+        ean: str,
+        profile: str,
+        from_dt: datetime,
+        to_dt: datetime,
+    ) -> bool:
+        self.probes.append((from_dt, to_dt))
+        return from_dt >= self.accessible_from
+
+
 def _build_coordinator() -> EgdDataUpdateCoordinator:
     """Create an uninitialized coordinator instance for pure method tests."""
     coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
@@ -148,6 +167,29 @@ def test_diagnostic_events_are_stored_only_when_enabled() -> None:
 
     assert coordinator.get_diagnostic_events()[0]["message"] == "enabled"
     assert coordinator.get_diagnostic_events()[0]["details"] == {"step": "refresh"}
+
+
+@pytest.mark.asyncio
+async def test_determine_start_timestamp_skips_unauthorized_history() -> None:
+    """Initial sync should begin at the first day accepted by EG.D."""
+    coordinator = _build_coordinator()
+    coordinator.client = _ProbeClient(
+        accessible_from=datetime(2026, 4, 5, 0, 0, tzinfo=timezone.utc)
+    )
+
+    start = await coordinator._determine_start_timestamp(  # noqa: SLF001
+        ean="859182400000000000",
+        profile="ICQ2",
+        latest_available_utc=datetime(2026, 4, 10, 23, 45, tzinfo=timezone.utc),
+        cache_complete_key="cache_complete",
+        last_valid_key="last_valid",
+    )
+
+    assert start == datetime(2026, 4, 5, 0, 0, tzinfo=timezone.utc)
+    assert coordinator.client.probes[0] == (  # type: ignore[attr-defined]
+        datetime(2024, 7, 1, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 4, 10, 23, 45, tzinfo=timezone.utc),
+    )
 
 
 def test_diagnostic_events_buffer_is_bounded() -> None:

@@ -228,12 +228,14 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         export_statistic_id = f"{DOMAIN}:meter_{ean}_export"
 
         import_from = await self._determine_start_timestamp(
+            ean=ean,
             profile=import_profile,
             latest_available_utc=latest_available_utc,
             cache_complete_key=self._IMPORT_CACHE_COMPLETE_KEY,
             last_valid_key=ATTR_LAST_VALID_IMPORT_TS,
         )
         export_from = await self._determine_start_timestamp(
+            ean=ean,
             profile=export_profile,
             latest_available_utc=latest_available_utc,
             cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
@@ -494,6 +496,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     async def _determine_start_timestamp(
         self,
         *,
+        ean: str,
         profile: str,
         latest_available_utc: datetime,
         cache_complete_key: str,
@@ -509,15 +512,33 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         cache_complete = bool(self._persisted.get(cache_complete_key))
         if not cache_complete:
             if self._parse_dt(self._persisted.get(last_valid_key)) is None:
+                accessible_start = await self._find_first_accessible_timestamp(
+                    ean=ean,
+                    profile=profile,
+                    candidate_start=hard_min,
+                    latest_available_utc=latest_available_utc,
+                )
+                if accessible_start is None:
+                    self._record_diagnostic_event(
+                        "info",
+                        "start_timestamp_no_accessible_period",
+                        {
+                            "profile": profile,
+                            "hard_min": hard_min.isoformat(),
+                            "latest_available_utc": latest_available_utc.isoformat(),
+                        },
+                    )
+                    return None
                 self._record_diagnostic_event(
                     "debug",
                     "start_timestamp_full_history",
                     {
                         "profile": profile,
                         "hard_min": hard_min.isoformat(),
+                        "accessible_start": accessible_start.isoformat(),
                     },
                 )
-                return hard_min
+                return accessible_start
             start = max(self._get_revalidation_start(latest_available_utc), hard_min)
             self._record_diagnostic_event(
                 "debug",
@@ -542,6 +563,58 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             },
         )
         return start
+
+    async def _find_first_accessible_timestamp(
+        self,
+        *,
+        ean: str,
+        profile: str,
+        candidate_start: datetime,
+        latest_available_utc: datetime,
+    ) -> datetime | None:
+        """Find the first day accepted by EG.D for the configured EAN/profile."""
+        if await self.client.async_probe_access(
+            ean=ean,
+            profile=profile,
+            from_dt=candidate_start,
+            to_dt=latest_available_utc,
+        ):
+            return candidate_start
+
+        first_day = candidate_start.date()
+        last_day = latest_available_utc.date()
+        low = 0
+        high = (last_day - first_day).days
+        accessible_offset: int | None = None
+
+        while low <= high:
+            mid = (low + high) // 2
+            probe_day = first_day + timedelta(days=mid)
+            probe_from = datetime.combine(probe_day, time(0, 0), tzinfo=timezone.utc)
+            probe_to = min(
+                datetime.combine(probe_day, time(23, 45), tzinfo=timezone.utc),
+                latest_available_utc,
+            )
+            if probe_from > probe_to:
+                low = mid + 1
+                continue
+
+            if await self.client.async_probe_access(
+                ean=ean,
+                profile=profile,
+                from_dt=probe_from,
+                to_dt=probe_to,
+            ):
+                accessible_offset = mid
+                high = mid - 1
+            else:
+                low = mid + 1
+
+        if accessible_offset is None:
+            return None
+
+        accessible_day = first_day + timedelta(days=accessible_offset)
+        return datetime.combine(accessible_day, time(0, 0), tzinfo=timezone.utc)
 
     def _merge_statistics(
         self,
