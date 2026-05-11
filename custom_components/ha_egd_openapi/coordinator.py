@@ -97,6 +97,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     _EXPORT_CACHE_KEY = "export_hourly_deltas"
     _IMPORT_CACHE_COMPLETE_KEY = "import_hourly_deltas_complete"
     _EXPORT_CACHE_COMPLETE_KEY = "export_hourly_deltas_complete"
+    _IMPORT_ACCESSIBLE_START_KEY = "import_accessible_start"
+    _EXPORT_ACCESSIBLE_START_KEY = "export_accessible_start"
     _MANUAL_RESTORE_KEYS = (
         ATTR_LAST_API_SYNC_UTC,
         ATTR_LAST_UPDATE_UTC,
@@ -232,6 +234,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             profile=import_profile,
             latest_available_utc=latest_available_utc,
             cache_complete_key=self._IMPORT_CACHE_COMPLETE_KEY,
+            accessible_start_key=self._IMPORT_ACCESSIBLE_START_KEY,
             last_valid_key=ATTR_LAST_VALID_IMPORT_TS,
         )
         export_from = await self._determine_start_timestamp(
@@ -239,6 +242,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             profile=export_profile,
             latest_available_utc=latest_available_utc,
             cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
+            accessible_start_key=self._EXPORT_ACCESSIBLE_START_KEY,
             last_valid_key=ATTR_LAST_VALID_EXPORT_TS,
         )
         _LOGGER.debug(
@@ -311,6 +315,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             fetched_from=import_from,
             latest_available_utc=latest_available_utc,
             profile=import_profile,
+            accessible_start_key=self._IMPORT_ACCESSIBLE_START_KEY,
             hourly_deltas=import_hourly,
         )
         total_export, export_stats = self._merge_statistics(
@@ -320,6 +325,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             fetched_from=export_from,
             latest_available_utc=latest_available_utc,
             profile=export_profile,
+            accessible_start_key=self._EXPORT_ACCESSIBLE_START_KEY,
             hourly_deltas=export_hourly,
         )
 
@@ -500,6 +506,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         profile: str,
         latest_available_utc: datetime,
         cache_complete_key: str,
+        accessible_start_key: str,
         last_valid_key: str,
     ) -> datetime | None:
         """Determine where next fetch should start.
@@ -518,6 +525,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                     candidate_start=hard_min,
                     latest_available_utc=latest_available_utc,
                 )
+                self._persisted[accessible_start_key] = self._iso(accessible_start)
                 if accessible_start is None:
                     self._record_diagnostic_event(
                         "info",
@@ -642,6 +650,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         fetched_from: datetime | None,
         latest_available_utc: datetime,
         profile: str,
+        accessible_start_key: str,
         hourly_deltas: dict[datetime, float],
     ) -> tuple[float, list[dict[str, Any]]]:
         """Merge fetched hourly deltas into local cache and build changed rows."""
@@ -670,15 +679,21 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         self._persisted[cache_key] = self._serialize_hourly_deltas(merged)
 
         hard_min = self._hard_min_for_profile(profile, latest_available_utc)
+        effective_complete_from = (
+            self._parse_dt(self._persisted.get(accessible_start_key)) or hard_min
+        )
         cache_complete = bool(self._persisted.get(cache_complete_key))
-        if fetched_from is not None and fetched_from <= hard_min:
+        if fetched_from is not None and fetched_from <= effective_complete_from:
             self._persisted[cache_complete_key] = True
             cache_complete = True
 
         if cache_complete:
             total = round(sum(merged.values()), 6)
         else:
-            total = float(self._persisted.get(persisted_total_key, 0.0))
+            total = self._get_persisted_total(
+                persisted_total_key=persisted_total_key,
+                cache_key=cache_key,
+            )
         self._record_diagnostic_event(
             "debug",
             "statistics_merged",
@@ -693,6 +708,13 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             },
         )
         return total, rows
+
+    def _get_persisted_total(self, *, persisted_total_key: str, cache_key: str) -> float:
+        """Return stored total, falling back to the local hourly cache."""
+        persisted_total = round(float(self._persisted.get(persisted_total_key, 0.0)), 6)
+        if persisted_total:
+            return persisted_total
+        return round(sum(self._load_hourly_deltas(cache_key).values()), 6)
 
     def _store_error_state(self, error_message: str) -> None:
         """Persist the last refresh error for diagnostic entities."""
@@ -743,8 +765,20 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             next_sync_reason = next_reason
 
         return EnergyState(
-            total_import_kwh=round(float(self._persisted.get("total_import_kwh", 0.0)), 3),
-            total_export_kwh=round(float(self._persisted.get("total_export_kwh", 0.0)), 3),
+            total_import_kwh=round(
+                self._get_persisted_total(
+                    persisted_total_key="total_import_kwh",
+                    cache_key=self._IMPORT_CACHE_KEY,
+                ),
+                3,
+            ),
+            total_export_kwh=round(
+                self._get_persisted_total(
+                    persisted_total_key="total_export_kwh",
+                    cache_key=self._EXPORT_CACHE_KEY,
+                ),
+                3,
+            ),
             last_valid_import_timestamp=self._persisted.get(ATTR_LAST_VALID_IMPORT_TS),
             last_valid_export_timestamp=self._persisted.get(ATTR_LAST_VALID_EXPORT_TS),
             last_import_status=self._persisted.get(ATTR_LAST_IMPORT_STATUS),

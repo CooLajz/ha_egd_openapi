@@ -182,10 +182,12 @@ async def test_determine_start_timestamp_skips_unauthorized_history() -> None:
         profile="ICQ2",
         latest_available_utc=datetime(2026, 4, 10, 23, 45, tzinfo=timezone.utc),
         cache_complete_key="cache_complete",
+        accessible_start_key="accessible_start",
         last_valid_key="last_valid",
     )
 
     assert start == datetime(2026, 4, 5, 0, 0, tzinfo=timezone.utc)
+    assert coordinator._persisted["accessible_start"] == "2026-04-05T00:00:00Z"  # noqa: SLF001
     assert coordinator.client.probes[0] == (  # type: ignore[attr-defined]
         datetime(2024, 7, 1, 0, 0, tzinfo=timezone.utc),
         datetime(2024, 7, 1, 23, 45, tzinfo=timezone.utc),
@@ -193,6 +195,47 @@ async def test_determine_start_timestamp_skips_unauthorized_history() -> None:
     assert all(
         probe_to - probe_from <= timedelta(days=1)
         for probe_from, probe_to in coordinator.client.probes  # type: ignore[attr-defined]
+    )
+
+
+def test_merge_statistics_completes_cache_from_accessible_start() -> None:
+    """Totals should be computed once the cache starts at the first authorized day."""
+    coordinator = _build_coordinator()
+    coordinator._persisted["accessible_start"] = "2026-04-05T00:00:00Z"  # noqa: SLF001
+
+    total, rows = coordinator._merge_statistics(  # noqa: SLF001
+        cache_key="hourly_deltas",
+        cache_complete_key="cache_complete",
+        persisted_total_key="total_kwh",
+        fetched_from=datetime(2026, 4, 5, 0, 0, tzinfo=timezone.utc),
+        latest_available_utc=datetime(2026, 4, 5, 23, 45, tzinfo=timezone.utc),
+        profile="ICQ2",
+        accessible_start_key="accessible_start",
+        hourly_deltas={
+            datetime(2026, 4, 5, 0, 0, tzinfo=timezone.utc): 1.25,
+            datetime(2026, 4, 5, 1, 0, tzinfo=timezone.utc): 2.5,
+        },
+    )
+
+    assert total == 3.75
+    assert len(rows) == 2
+    assert coordinator._persisted["cache_complete"] is True  # noqa: SLF001
+
+
+def test_persisted_total_falls_back_to_hourly_cache() -> None:
+    """Sensors should recover totals from local cached hourly deltas."""
+    coordinator = _build_coordinator()
+    coordinator._persisted["hourly_deltas"] = {  # noqa: SLF001
+        "2026-04-05T00:00:00Z": 1.25,
+        "2026-04-05T01:00:00Z": 2.5,
+    }
+
+    assert (
+        coordinator._get_persisted_total(  # noqa: SLF001
+            persisted_total_key="total_kwh",
+            cache_key="hourly_deltas",
+        )
+        == 3.75
     )
 
 
