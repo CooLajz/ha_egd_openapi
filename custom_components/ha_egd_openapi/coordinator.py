@@ -573,16 +573,17 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         latest_available_utc: datetime,
     ) -> datetime | None:
         """Find the first day accepted by EG.D for the configured EAN/profile."""
-        if await self.client.async_probe_access(
+        first_day = candidate_start.date()
+        last_day = latest_available_utc.date()
+
+        if await self._probe_accessible_day(
             ean=ean,
             profile=profile,
-            from_dt=candidate_start,
-            to_dt=latest_available_utc,
+            day=first_day,
+            latest_available_utc=latest_available_utc,
         ):
             return candidate_start
 
-        first_day = candidate_start.date()
-        last_day = latest_available_utc.date()
         low = 0
         high = (last_day - first_day).days
         accessible_offset: int | None = None
@@ -590,20 +591,12 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         while low <= high:
             mid = (low + high) // 2
             probe_day = first_day + timedelta(days=mid)
-            probe_from = datetime.combine(probe_day, time(0, 0), tzinfo=timezone.utc)
-            probe_to = min(
-                datetime.combine(probe_day, time(23, 45), tzinfo=timezone.utc),
-                latest_available_utc,
-            )
-            if probe_from > probe_to:
-                low = mid + 1
-                continue
 
-            if await self.client.async_probe_access(
+            if await self._probe_accessible_day(
                 ean=ean,
                 profile=profile,
-                from_dt=probe_from,
-                to_dt=probe_to,
+                day=probe_day,
+                latest_available_utc=latest_available_utc,
             ):
                 accessible_offset = mid
                 high = mid - 1
@@ -615,6 +608,30 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
 
         accessible_day = first_day + timedelta(days=accessible_offset)
         return datetime.combine(accessible_day, time(0, 0), tzinfo=timezone.utc)
+
+    async def _probe_accessible_day(
+        self,
+        *,
+        ean: str,
+        profile: str,
+        day: date,
+        latest_available_utc: datetime,
+    ) -> bool:
+        """Return whether one UTC day is accepted by EG.D."""
+        probe_from = datetime.combine(day, time(0, 0), tzinfo=timezone.utc)
+        probe_to = min(
+            datetime.combine(day, time(23, 45), tzinfo=timezone.utc),
+            latest_available_utc,
+        )
+        if probe_from > probe_to:
+            return False
+
+        return await self.client.async_probe_access(
+            ean=ean,
+            profile=profile,
+            from_dt=probe_from,
+            to_dt=probe_to,
+        )
 
     def _merge_statistics(
         self,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -188,7 +188,11 @@ async def test_determine_start_timestamp_skips_unauthorized_history() -> None:
     assert start == datetime(2026, 4, 5, 0, 0, tzinfo=timezone.utc)
     assert coordinator.client.probes[0] == (  # type: ignore[attr-defined]
         datetime(2024, 7, 1, 0, 0, tzinfo=timezone.utc),
-        datetime(2026, 4, 10, 23, 45, tzinfo=timezone.utc),
+        datetime(2024, 7, 1, 23, 45, tzinfo=timezone.utc),
+    )
+    assert all(
+        probe_to - probe_from <= timedelta(days=1)
+        for probe_from, probe_to in coordinator.client.probes  # type: ignore[attr-defined]
     )
 
 
