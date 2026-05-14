@@ -222,6 +222,80 @@ def test_merge_statistics_completes_cache_from_accessible_start() -> None:
     assert coordinator._persisted["cache_complete"] is True  # noqa: SLF001
 
 
+def test_merge_statistics_repairs_missing_accessible_start_on_initial_fetch() -> None:
+    """Initial full fetch should complete the cache even if the start checkpoint is absent."""
+    coordinator = _build_coordinator()
+
+    total, _rows = coordinator._merge_statistics(  # noqa: SLF001
+        cache_key="hourly_deltas",
+        cache_complete_key="cache_complete",
+        persisted_total_key="total_kwh",
+        fetched_from=datetime(2026, 4, 5, 0, 0, tzinfo=timezone.utc),
+        latest_available_utc=datetime(2026, 4, 5, 23, 45, tzinfo=timezone.utc),
+        profile="ICQ2",
+        accessible_start_key="accessible_start",
+        hourly_deltas={
+            datetime(2026, 4, 5, 0, 0, tzinfo=timezone.utc): 1.25,
+            datetime(2026, 4, 5, 1, 0, tzinfo=timezone.utc): 2.5,
+        },
+    )
+
+    assert total == 3.75
+    assert coordinator._persisted["accessible_start"] == "2026-04-05T00:00:00Z"  # noqa: SLF001
+    assert coordinator._persisted["cache_complete"] is True  # noqa: SLF001
+
+
+def test_incomplete_cache_total_advances_from_cached_sum() -> None:
+    """Incomplete caches should still repair frozen totals when cached data grows."""
+    coordinator = _build_coordinator()
+    coordinator._persisted["total_kwh"] = 3.0  # noqa: SLF001
+    coordinator._persisted["hourly_deltas"] = {  # noqa: SLF001
+        "2026-04-05T00:00:00Z": 1.25,
+        "2026-04-05T01:00:00Z": 2.5,
+    }
+
+    total, _rows = coordinator._merge_statistics(  # noqa: SLF001
+        cache_key="hourly_deltas",
+        cache_complete_key="cache_complete",
+        persisted_total_key="total_kwh",
+        fetched_from=datetime(2026, 4, 6, 0, 0, tzinfo=timezone.utc),
+        latest_available_utc=datetime(2026, 4, 6, 23, 45, tzinfo=timezone.utc),
+        profile="ICQ2",
+        accessible_start_key="accessible_start",
+        hourly_deltas={
+            datetime(2026, 4, 6, 0, 0, tzinfo=timezone.utc): 0.5,
+        },
+    )
+
+    assert total == 4.25
+    assert "cache_complete" not in coordinator._persisted  # noqa: SLF001
+
+
+def test_incomplete_cache_total_does_not_decrease_from_partial_cache() -> None:
+    """Partial cached sums must not lower an already persisted cumulative total."""
+    coordinator = _build_coordinator()
+    coordinator._persisted["total_kwh"] = 10.0  # noqa: SLF001
+    coordinator._persisted["hourly_deltas"] = {  # noqa: SLF001
+        "2026-04-05T00:00:00Z": 0.2,
+    }
+
+    total, _rows = coordinator._merge_statistics(  # noqa: SLF001
+        cache_key="hourly_deltas",
+        cache_complete_key="cache_complete",
+        persisted_total_key="total_kwh",
+        fetched_from=datetime(2026, 4, 6, 0, 0, tzinfo=timezone.utc),
+        latest_available_utc=datetime(2026, 4, 6, 23, 45, tzinfo=timezone.utc),
+        profile="ICQ2",
+        accessible_start_key="accessible_start",
+        hourly_deltas={
+            datetime(2026, 4, 6, 0, 0, tzinfo=timezone.utc): 0.5,
+        },
+    )
+
+    assert total == 10.0
+    assert "cache_complete" not in coordinator._persisted  # noqa: SLF001
+
+
 def test_persisted_total_falls_back_to_hourly_cache() -> None:
     """Sensors should recover totals from local cached hourly deltas."""
     coordinator = _build_coordinator()

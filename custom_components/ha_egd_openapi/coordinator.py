@@ -679,21 +679,25 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         self._persisted[cache_key] = self._serialize_hourly_deltas(merged)
 
         hard_min = self._hard_min_for_profile(profile, latest_available_utc)
-        effective_complete_from = (
-            self._parse_dt(self._persisted.get(accessible_start_key)) or hard_min
-        )
+        accessible_start = self._parse_dt(self._persisted.get(accessible_start_key))
+        if accessible_start is None and not existing and fetched_from is not None:
+            accessible_start = fetched_from
+            self._persisted[accessible_start_key] = self._iso(accessible_start)
+        effective_complete_from = accessible_start or hard_min
         cache_complete = bool(self._persisted.get(cache_complete_key))
         if fetched_from is not None and fetched_from <= effective_complete_from:
             self._persisted[cache_complete_key] = True
             cache_complete = True
 
+        cache_total = round(sum(merged.values()), 6)
         if cache_complete:
-            total = round(sum(merged.values()), 6)
+            total = cache_total
         else:
-            total = self._get_persisted_total(
+            persisted_total = self._get_persisted_total(
                 persisted_total_key=persisted_total_key,
                 cache_key=cache_key,
             )
+            total = max(persisted_total, cache_total)
         self._record_diagnostic_event(
             "debug",
             "statistics_merged",
