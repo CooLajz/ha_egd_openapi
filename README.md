@@ -21,11 +21,11 @@ Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D 
 
 ## Testovací podpora měření C1
 
-Větev `test/c1-support`, verze `1.1.0-beta.4`, podporuje měření C1 přes sjednocené rozhraní `/rest/spotreby` a profily `DCQC` (odběr) a `DSQC` (dodávka). Požadavky byly ověřeny na skutečném odběrném místě C1 a denní součty přesně porovnány s Distribucí24, včetně dne změny času. Načítání předchozí verze beta.3 bylo potvrzeno také v běžícím Home Assistantu. Zápis do Recorderu ověřují automatické testy; nasazení této verze do běžícího Home Assistantu se ověřuje samostatně.
+Větev `test/c1-support`, verze `1.1.0-beta.4`, podporuje měření C1 přes sjednocené rozhraní `/rest/spotreby` a profily `DCQC` (odběr) a `DSQC` (dodávka). Požadavky byly ověřeny na skutečném odběrném místě C1 a denní součty přesně porovnány s Distribucí24, včetně dne změny času. Načítání C1 bylo potvrzeno také v běžícím Home Assistantu. Zápis do Recorderu a chování volby pro vypnutí dodávky ověřují automatické testy.
 
 Verze beta.4 při vypnuté volbě **Načítat dodávku do sítě** nevytváří senzor celkové dodávky ani nové statistiky dodávky. Pokud senzor existoval z dřívější konfigurace, při opětovném načtení integrace jej odebere z registru entit. Již uložená historie dodávky se zachová a po opětovném zapnutí lze v načítání pokračovat.
 
-Verze beta.3 opravuje první načítání historie: hledání dostupného období i samotný import používají stejný limit tří let od aktuálního času s bezpečnostní rezervou a zaokrouhlením na čtvrthodinu. Kontrola dostupnosti načítá jen první stránku, aby zbytečně nestahovala celý den po jednotlivých záznamech. Pro všechny profily A/B i C1 integrace ověřuje úplnost stránek, duplicity, vrácený profil a jednotky; při neúplné nebo rozporné odpovědi ohlásí chybu a neimportuje částečně stažený profil.
+Hledání dostupného období i samotný import používají stejný limit tří let od aktuálního času s bezpečnostní rezervou a zaokrouhlením na čtvrthodinu. Kontrola dostupnosti načítá jen první stránku, aby zbytečně nestahovala celý den po jednotlivých záznamech. Pro všechny profily A/B i C1 integrace ověřuje úplnost stránek, duplicity, vrácený profil a jednotky; při neúplné nebo rozporné odpovědi ohlásí chybu a neimportuje částečně stažený profil.
 
 Po instalaci testovacího vydání a restartu Home Assistantu:
 
@@ -37,9 +37,9 @@ Po instalaci testovacího vydání a restartu Home Assistantu:
 
 C1 načítá **čtvrthodinové energie v kWh**. Denní součty vznikají sečtením intervalů. Denní kumulativní stavy číselníků ani samostatné tarify VT/NT tato verze neimportuje. Hranice požadavků zahrnují i první a poslední čtvrthodinu dne. Časové značky se převádějí do UTC bez posouvání měření do předchozího intervalu.
 
-Číselné profily z první bety se automaticky převádějí na `DCQC` a `DSQC`. Při změně profilu integrace znovu ověří dostupnou historii. Zachová přitom dosavadní hodinovou cache i statistiky Recorderu a přepíše překrývající se hodiny; historii není nutné mazat. Prázdná odpověď A/B sama nezpůsobí přepnutí na C1.
+Při změně profilu integrace znovu ověří dostupnou historii. Zachová přitom dosavadní hodinovou cache i statistiky Recorderu a přepíše překrývající se hodiny; historii není nutné mazat. Prázdná odpověď A/B sama nezpůsobí přepnutí na C1.
 
-Sjednocené rozhraní a profily C1 popisuje [oficiální návod EG.D z května 2026](https://www.egd.cz/sites/default/files/2026-05/uzivatelsky_navod_openapi_abc.pdf). Ověřenou cestu C1 pomohlo najít porovnání konfigurace rozhraní s projektem [minx-code/ha-egd-cz-openapi](https://github.com/minx-code/ha-egd-cz-openapi). Číselné profily přes `/rest/c/spotreby` ze staršího návodu u testovaného místa vracely chybu oprávnění, zatímco `DCQC` přes sjednocené rozhraní poskytuje data.
+Sjednocené rozhraní a profily C1 popisuje [oficiální návod EG.D z května 2026](https://www.egd.cz/sites/default/files/2026-05/uzivatelsky_navod_openapi_abc.pdf). Ověřenou cestu C1 pomohlo najít porovnání konfigurace rozhraní s projektem [minx-code/ha-egd-cz-openapi](https://github.com/minx-code/ha-egd-cz-openapi).
 
 Kontroly úplnosti stahování a zarovnání historického limitu vycházejí také z porovnání úprav ve forcích [JanJakes/ha_egd_openapi](https://github.com/JanJakes/ha_egd_openapi) a [mstrlc/ha_egd_openapi](https://github.com/mstrlc/ha_egd_openapi). Výpočty cen a rozdělení do tarifů VT/NT tato testovací větev nepřebírá.
 

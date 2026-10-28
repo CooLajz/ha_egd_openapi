@@ -102,7 +102,7 @@ async def test_total_remains_binding_when_later_page_omits_it():
 
 
 @pytest.mark.asyncio
-async def test_legacy_payload_without_metadata_or_total_still_paginates():
+async def test_payload_without_optional_metadata_or_total_still_paginates():
     client = _PagedClient([{"data": [_point(0), _point(1)]}, {"data": [_point(2)]}])
     assert len(await _fetch(client)) == 3
     assert [request["page_start"] for request in client.requests] == [1, 3]

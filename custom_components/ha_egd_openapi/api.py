@@ -11,7 +11,7 @@ from typing import Any, Callable
 import aiohttp
 from aiohttp import ClientError
 
-from .const import C1_PROFILES, DATA_URL, OAUTH_URL, PROFILE_UNITS, normalize_profile
+from .const import C1_PROFILES, DATA_URL, OAUTH_URL, PROFILE_UNITS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -215,7 +215,6 @@ class EgdApiClient:
         page_size: int,
     ) -> tuple[int, Any]:
         """Request one page of profile data and refresh token once on auth failure."""
-        profile = normalize_profile(profile)
         is_c1 = profile in C1_PROFILES
         params = {
             "ean": ean,
@@ -320,7 +319,7 @@ class EgdApiClient:
         try:
             status, data = await self._async_request_profile_data(
                 ean=ean,
-                profile=normalize_profile(profile),
+                profile=profile,
                 from_dt=from_dt,
                 to_dt=to_dt,
                 page_start=1,
@@ -382,7 +381,6 @@ class EgdApiClient:
         """
         if from_dt.tzinfo is None or to_dt.tzinfo is None:
             raise ValueError("from_dt and to_dt must be timezone-aware")
-        profile = normalize_profile(profile)
         effective_from = max(from_dt.astimezone(timezone.utc), _safe_three_year_cap())
         effective_to = to_dt.astimezone(timezone.utc)
         if effective_from > effective_to:
@@ -457,7 +455,6 @@ class EgdApiClient:
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> list[IntervalRecord]:
         """Fetch one API chunk including paging."""
-        profile = normalize_profile(profile)
         # In practice EG.D pagination behaves as 1-based even though the PDF
         # example shows PageStart=0. Using 0 can return an empty first page
         # without an explicit API error.

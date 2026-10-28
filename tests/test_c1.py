@@ -30,7 +30,6 @@ from custom_components.ha_egd_openapi.const import (
     CONF_EXPORT_PROFILE,
     CONF_IMPORT_PROFILE,
     DATA_URL,
-    LEGACY_C1_PROFILES,
 )
 from custom_components.ha_egd_openapi.coordinator import EgdDataUpdateCoordinator
 
@@ -79,7 +78,7 @@ def _response(payload, status=200):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "profile",
-    [C1_IMPORT_PROFILE, C1_EXPORT_PROFILE, "ICQ2", "ICC1", *LEGACY_C1_PROFILES],
+    [C1_IMPORT_PROFILE, C1_EXPORT_PROFILE, "ICQ2", "ICC1"],
 )
 async def test_unified_request_routing_and_interval_boundaries(profile):
     session = SimpleNamespace(get=MagicMock(return_value=_response({})))
@@ -98,9 +97,8 @@ async def test_unified_request_routing_and_interval_boundaries(profile):
     params = kwargs["params"]
     assert "zdrojDat" not in params
     assert params["pageStart"] == "1" and params["pageSize"] == "3000"
-    expected_profile = LEGACY_C1_PROFILES.get(profile, profile)
-    assert params["profile"] == expected_profile
-    if expected_profile in (C1_IMPORT_PROFILE, C1_EXPORT_PROFILE):
+    assert params["profile"] == profile
+    if profile in (C1_IMPORT_PROFILE, C1_EXPORT_PROFILE):
         assert params["from"] == "2026-10-26T23:59:59.999Z"
         assert params["to"] == "2026-10-27T23:59:59.999Z"
     else:
@@ -175,12 +173,10 @@ async def test_c1_fetch_includes_every_quarter_with_exclusive_server_bounds(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("legacy", [False, True])
-async def test_c1_payload_produces_energy_without_shifting_timestamps(legacy):
+async def test_c1_payload_produces_energy_without_shifting_timestamps():
     client = _PayloadClient({C1_IMPORT_PROFILE: _payload()})
-    profile = next(iter(LEGACY_C1_PROFILES)) if legacy else C1_IMPORT_PROFILE
     records = await client.async_get_profile_data(
-        ean="test-ean", profile=profile, from_dt=START, to_dt=END
+        ean="test-ean", profile=C1_IMPORT_PROFILE, from_dt=START, to_dt=END
     )
     assert [record.value for record in records] == [0.013, 0.025]
     assert [record.timestamp for record in records] == [
@@ -391,10 +387,9 @@ def test_c1_latest_slot_includes_last_quarter_without_today_boundary(monkeypatch
         (None, C1_IMPORT_PROFILE, True),
         ("ICQ2", C1_IMPORT_PROFILE, True),
         (C1_IMPORT_PROFILE, C1_IMPORT_PROFILE, False),
-        (next(iter(LEGACY_C1_PROFILES)), next(iter(LEGACY_C1_PROFILES)), True),
     ],
 )
-async def test_profile_switch_and_beta1_migration_revalidate_without_deleting_history(
+async def test_profile_switch_revalidates_without_deleting_history(
     previous_profile, selected_profile, reset
 ):
     coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
@@ -430,10 +425,10 @@ def _options_flow(entry):
     return flow
 
 
-def test_config_schema_accepts_c1_and_upgrades_beta1_defaults():
+def test_config_schema_accepts_c1_and_preserves_selected_defaults():
     data = _build_user_schema()(_entry().data)
     assert data[CONF_IMPORT_PROFILE] == C1_IMPORT_PROFILE
-    defaults = _entry(next(iter(LEGACY_C1_PROFILES))).data
+    defaults = _entry().data
     assert _build_user_schema(defaults)({})[CONF_IMPORT_PROFILE] == C1_IMPORT_PROFILE
 
 

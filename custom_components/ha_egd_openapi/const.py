@@ -39,10 +39,6 @@ PROFILE_UNITS = {
     C1_IMPORT_PROFILE: "kWh",
     C1_EXPORT_PROFILE: "kWh",
 }
-LEGACY_C1_PROFILES = {
-    "0.0.2.4.1.2.12.0.0.0.0.0.0.0.0.3.72.0": C1_IMPORT_PROFILE,
-    "0.0.2.4.19.2.12.0.0.0.0.0.0.0.0.3.72.0": C1_EXPORT_PROFILE,
-}
 STATUS_VALID = "IU012"
 
 STORE_VERSION = 1
@@ -65,8 +61,3 @@ ATTR_NEXT_SYNC_REASON = "next_sync_reason"
 ATTR_LAST_MANUAL_REFRESH_UTC = "last_manual_refresh_utc"
 ATTR_LAST_MANUAL_REFRESH_RESULT = "last_manual_refresh_result"
 ATTR_EAN = "ean"
-
-
-def normalize_profile(profile: str) -> str:
-    """Upgrade numeric C1 selections from beta.1 without touching A/B profiles."""
-    return LEGACY_C1_PROFILES.get(profile, profile)

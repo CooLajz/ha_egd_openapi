@@ -33,7 +33,6 @@ from .const import (
     DEFAULT_UPDATE_HOUR,
     DEFAULT_UPDATE_MINUTE,
     DOMAIN,
-    normalize_profile,
 )
 
 IMPORT_OPTIONS = [
@@ -52,16 +51,13 @@ def _profiles_match(data: dict[str, Any]) -> bool:
     """Enabled directions must use profiles for the same metering type."""
     if not data.get(CONF_ENABLE_EXPORT, True):
         return True
-    return (normalize_profile(data[CONF_IMPORT_PROFILE]) in C1_PROFILES) == (
-        normalize_profile(data[CONF_EXPORT_PROFILE]) in C1_PROFILES
+    return (data[CONF_IMPORT_PROFILE] in C1_PROFILES) == (
+        data[CONF_EXPORT_PROFILE] in C1_PROFILES
     )
 
 
 def _build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     defaults = dict(defaults or {})
-    for key in (CONF_IMPORT_PROFILE, CONF_EXPORT_PROFILE):
-        if key in defaults:
-            defaults[key] = normalize_profile(defaults[key])
     return vol.Schema(
         {
             vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME)): str,
@@ -211,8 +207,8 @@ class EgdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_EAN: user_input[CONF_EAN],
                         CONF_CLIENT_ID: user_input[CONF_CLIENT_ID],
                         CONF_CLIENT_SECRET: user_input[CONF_CLIENT_SECRET],
-                        CONF_IMPORT_PROFILE: normalize_profile(user_input[CONF_IMPORT_PROFILE]),
-                        CONF_EXPORT_PROFILE: normalize_profile(user_input[CONF_EXPORT_PROFILE]),
+                        CONF_IMPORT_PROFILE: user_input[CONF_IMPORT_PROFILE],
+                        CONF_EXPORT_PROFILE: user_input[CONF_EXPORT_PROFILE],
                         CONF_ENABLE_EXPORT: bool(user_input.get(CONF_ENABLE_EXPORT, True)),
                         CONF_UPDATE_HOUR: int(user_input[CONF_UPDATE_HOUR]),
                         CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
@@ -238,17 +234,14 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         defaults = {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
-        for key in (CONF_IMPORT_PROFILE, CONF_EXPORT_PROFILE):
-            if key in defaults:
-                defaults[key] = normalize_profile(defaults[key])
         if user_input is not None and not _profiles_match(user_input):
             errors["base"] = "mixed_measurement_types"
         if user_input is not None and not errors:
             return self.async_create_entry(
                 title="",
                 data={
-                    CONF_IMPORT_PROFILE: normalize_profile(user_input[CONF_IMPORT_PROFILE]),
-                    CONF_EXPORT_PROFILE: normalize_profile(user_input[CONF_EXPORT_PROFILE]),
+                    CONF_IMPORT_PROFILE: user_input[CONF_IMPORT_PROFILE],
+                    CONF_EXPORT_PROFILE: user_input[CONF_EXPORT_PROFILE],
                     CONF_ENABLE_EXPORT: bool(user_input.get(CONF_ENABLE_EXPORT, True)),
                     CONF_UPDATE_HOUR: int(user_input[CONF_UPDATE_HOUR]),
                     CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),

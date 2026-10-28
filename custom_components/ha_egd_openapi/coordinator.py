@@ -47,7 +47,6 @@ from .const import (
     MAX_DIAGNOSTIC_EVENTS,
     STORE_KEY,
     STORE_VERSION,
-    normalize_profile,
 )
 from .statistics import async_import_external_statistics
 
@@ -135,11 +134,9 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 ATTR_LAST_EXPORT_STATUS,
             ),
         ):
-            profile = normalize_profile(
-                self.config_entry.options.get(option, self.config_entry.data[option])
-            )
+            profile = self.config_entry.options.get(option, self.config_entry.data[option])
             previous_profile = self._persisted.get(option)
-            # Older stores predate C1 and have no profile fingerprint.
+            # Stable A/B-only stores have no profile fingerprint.
             changed = previous_profile != profile and (
                 previous_profile is not None or profile in C1_PROFILES
             )
@@ -253,15 +250,11 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         """Refresh import/export state from EG.D."""
         ean = str(self.config_entry.data[CONF_EAN]).strip()
 
-        import_profile = normalize_profile(
-            self.config_entry.options.get(
-                CONF_IMPORT_PROFILE, self.config_entry.data[CONF_IMPORT_PROFILE]
-            )
+        import_profile = self.config_entry.options.get(
+            CONF_IMPORT_PROFILE, self.config_entry.data[CONF_IMPORT_PROFILE]
         )
-        export_profile = normalize_profile(
-            self.config_entry.options.get(
-                CONF_EXPORT_PROFILE, self.config_entry.data[CONF_EXPORT_PROFILE]
-            )
+        export_profile = self.config_entry.options.get(
+            CONF_EXPORT_PROFILE, self.config_entry.data[CONF_EXPORT_PROFILE]
         )
 
         now_utc = dt_util.utcnow().astimezone(timezone.utc)
@@ -1162,10 +1155,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         A/B retains its conservative 23:30 boundary and rolling revalidation.
         """
         now_local = dt_util.now()
-        profile = normalize_profile(
-            self.config_entry.options.get(
-                CONF_IMPORT_PROFILE, self.config_entry.data.get(CONF_IMPORT_PROFILE, "ICQ2")
-            )
+        profile = self.config_entry.options.get(
+            CONF_IMPORT_PROFILE, self.config_entry.data.get(CONF_IMPORT_PROFILE, "ICQ2")
         )
         latest_minute = 45 if profile in C1_PROFILES else 30
         latest_local = datetime.combine(
