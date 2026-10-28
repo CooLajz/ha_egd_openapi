@@ -15,7 +15,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import EgdApiClient, EgdApiError, EgdAuthError, IntervalRecord
+from .api import EgdApiClient, EgdApiError, EgdAuthError, IntervalRecord, _safe_three_year_cap
 from .const import (
     ATTR_LAST_API_SYNC_UTC,
     ATTR_LAST_CHECK_FINISHED_UTC,
@@ -60,15 +60,6 @@ PROFILE_MIN_DATES: dict[str, date] = {
 
 # Standard valid readings from the A/B and C1 APIs.
 ALLOWED_STATUSES = {"IU012", "W"}
-
-
-def _three_years_ago_safe(dt: datetime) -> datetime:
-    """Return a conservative timestamp within EG.D rolling 3-year limit."""
-    try:
-        capped = dt.replace(year=dt.year - 3)
-    except ValueError:
-        capped = dt.replace(month=2, day=28, year=dt.year - 3)
-    return capped + timedelta(days=1)
 
 
 @dataclass(slots=True)
@@ -631,6 +622,9 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         latest_available_utc: datetime,
     ) -> datetime | None:
         """Find the first day accepted by EG.D for the configured EAN/profile."""
+        candidate_start = max(candidate_start, _safe_three_year_cap())
+        if candidate_start > latest_available_utc:
+            return None
         first_day = candidate_start.date()
         last_day = latest_available_utc.date()
 
@@ -665,7 +659,10 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             return None
 
         accessible_day = first_day + timedelta(days=accessible_offset)
-        return datetime.combine(accessible_day, time(0, 0), tzinfo=timezone.utc)
+        return max(
+            candidate_start,
+            datetime.combine(accessible_day, time(0, 0), tzinfo=timezone.utc),
+        )
 
     async def _probe_accessible_day(
         self,
@@ -1141,7 +1138,8 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
 
     def _hard_min_for_profile(self, profile: str, latest: datetime) -> datetime:
         """Return earliest allowed start for a profile."""
-        hard_min = _three_years_ago_safe(latest)
+        # EG.D validates against the current clock, not yesterday's newest data.
+        hard_min = _safe_three_year_cap()
 
         profile_min = PROFILE_MIN_DATES.get(profile)
         if profile_min is not None:

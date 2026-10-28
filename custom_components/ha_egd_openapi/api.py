@@ -11,12 +11,13 @@ from typing import Any, Callable
 import aiohttp
 from aiohttp import ClientError
 
-from .const import C1_PROFILES, DATA_URL, OAUTH_URL, normalize_profile
+from .const import C1_PROFILES, DATA_URL, OAUTH_URL, PROFILE_UNITS, normalize_profile
 
 _LOGGER = logging.getLogger(__name__)
 
 
 AUTHORIZATION_ERROR_FRAGMENT = "nemáte oprávnění na data odběrného místa"
+HISTORY_LIMIT_ERROR_FRAGMENT = "starší než 3 roky"
 VALIDATION_ERROR_FRAGMENT = "validation_error"
 DEFAULT_PAGE_SIZE = 3000
 MAX_PROFILE_CHUNK = timedelta(days=30, hours=23, minutes=45)
@@ -45,14 +46,16 @@ def _safe_three_year_cap(reference: datetime | None = None) -> datetime:
     EG.D enforces a rolling 3-year limit, but the exact comparison appears to
     happen on the server side against its current date/time. We therefore keep
     a one-day safety margin to avoid boundary failures around timezone / leap
-    year differences.
+    year differences, then round up to a complete quarter-hour.
     """
     ref = (reference or datetime.now(timezone.utc)).astimezone(timezone.utc)
     try:
         capped = ref.replace(year=ref.year - 3)
     except ValueError:
         capped = ref.replace(month=2, day=28, year=ref.year - 3)
-    return capped + timedelta(days=1)
+    capped += timedelta(days=1)
+    aligned = capped.replace(minute=capped.minute // 15 * 15, second=0, microsecond=0)
+    return aligned if aligned == capped else aligned + INTERVAL_LENGTH
 
 
 class EgdApiError(Exception):
@@ -75,6 +78,13 @@ class EgdValidationError(EgdApiError):
         payload_str = str(self.payload).lower()
         msg_str = str(self).lower()
         return AUTHORIZATION_ERROR_FRAGMENT in payload_str or AUTHORIZATION_ERROR_FRAGMENT in msg_str
+
+    @property
+    def is_history_limit_error(self) -> bool:
+        """Whether the server rejected the lower bound as older than its cap."""
+        return HISTORY_LIMIT_ERROR_FRAGMENT in str(self.payload).lower() or (
+            HISTORY_LIMIT_ERROR_FRAGMENT in str(self).lower()
+        )
 
 
 @dataclass(slots=True)
@@ -299,19 +309,31 @@ class EgdApiClient:
     ) -> bool:
         """Return whether the given period is accessible for the EAN/profile.
 
-        Uses a very small request to determine whether the server accepts the
-        requested time window.
+        Check one page only, using the same current history cap as full fetches.
         """
+        if from_dt.tzinfo is None or to_dt.tzinfo is None:
+            raise ValueError("from_dt and to_dt must be timezone-aware")
+        from_dt = max(from_dt.astimezone(timezone.utc), _safe_three_year_cap())
+        to_dt = to_dt.astimezone(timezone.utc)
+        if from_dt > to_dt:
+            return False
         try:
-            await self._async_get_profile_data_chunk(
+            status, data = await self._async_request_profile_data(
                 ean=ean,
-                profile=profile,
+                profile=normalize_profile(profile),
                 from_dt=from_dt,
                 to_dt=to_dt,
+                page_start=1,
                 page_size=1,
             )
+            if status == 400:
+                raise EgdValidationError(
+                    f"Data request failed: HTTP {status} {data}", payload=data
+                )
+            if status >= 400:
+                raise EgdApiError(f"Data request failed: HTTP {status} {data}")
         except EgdValidationError as err:
-            if err.is_authorization_window_error:
+            if err.is_authorization_window_error or err.is_history_limit_error:
                 _LOGGER.debug(
                     "Probe denied for %s/%s in %s -> %s: %s",
                     ean,
@@ -441,6 +463,8 @@ class EgdApiClient:
         # without an explicit API error.
         page_start = 1
         records: list[IntervalRecord] = []
+        seen_timestamps: set[datetime] = set()
+        total: int | None = None
 
         while True:
             status, data = await self._async_request_profile_data(
@@ -466,6 +490,8 @@ class EgdApiClient:
                 raise EgdApiError("API vrátilo neočekávaný formát profilových dat.")
 
             if not payloads:
+                if total is not None and len(records) < total:
+                    raise EgdApiError("API vrátilo neúplná profilová data: chybí stránka.")
                 self._log_diagnostic(
                     "debug",
                     "profile_chunk_empty",
@@ -477,14 +503,36 @@ class EgdApiClient:
                 )
                 return records
 
+            if len(payloads) != 1 or not isinstance(payloads[0], dict):
+                raise EgdApiError("API vrátilo neočekávaný formát profilových dat.")
             payload = payloads[0]
-            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+            if payload.get("profile", profile) != profile:
+                raise EgdApiError("API vrátilo jiný profil, než byl požadován.")
+            if "units" in payload:
+                units = payload["units"]
+                expected_units = PROFILE_UNITS.get(profile)
+                if (
+                    not isinstance(units, str)
+                    or expected_units is None
+                    or units.casefold() != expected_units.casefold()
+                ):
+                    raise EgdApiError(f"API vrátilo neplatnou jednotku pro profil {profile}.")
+            if not isinstance(payload.get("data"), list):
                 raise EgdApiError("API vrátilo neočekávaný formát profilových dat (data).")
             batch = payload["data"]
-            try:
-                total = int(payload.get("total", len(batch)))
-            except (TypeError, ValueError) as err:
-                raise EgdApiError("API vrátilo neplatný počet záznamů.") from err
+            if "total" in payload:
+                raw_total = payload["total"]
+                try:
+                    if isinstance(raw_total, bool) or not isinstance(raw_total, (int, str)):
+                        raise ValueError("Invalid record count")
+                    page_total = int(raw_total)
+                except (TypeError, ValueError) as err:
+                    raise EgdApiError("API vrátilo neplatný počet záznamů.") from err
+                if page_total < 0 or (total is not None and page_total != total):
+                    raise EgdApiError("API změnilo celkový počet záznamů během stránkování.")
+                total = page_total
+            if not batch and total is not None and len(records) < total:
+                raise EgdApiError("API vrátilo neúplná profilová data: prázdná stránka.")
 
             for item in batch:
                 try:
@@ -499,15 +547,23 @@ class EgdApiClient:
                         raise ValueError("Non-finite energy")
                 except (KeyError, TypeError, ValueError, AttributeError) as err:
                     raise EgdApiError("API vrátilo neplatný čas nebo hodnotu měření.") from err
+                ts = ts.astimezone(timezone.utc)
+                if ts in seen_timestamps:
+                    raise EgdApiError("API vrátilo duplicitní interval během stránkování.")
+                seen_timestamps.add(ts)
                 records.append(
                     IntervalRecord(
-                        timestamp=ts.astimezone(timezone.utc),
+                        timestamp=ts,
                         value=value,
                         status=str(item.get("status", "")),
                     )
                 )
 
-            if len(batch) < page_size or len(records) >= total:
+            if total is not None and len(records) > total:
+                raise EgdApiError("API vrátilo více záznamů, než oznámilo.")
+            if total is not None and len(records) == total:
+                break
+            if total is None and len(batch) < page_size:
                 break
             page_start += len(batch)
 

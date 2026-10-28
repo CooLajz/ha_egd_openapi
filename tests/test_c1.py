@@ -191,17 +191,12 @@ async def test_c1_payload_produces_energy_without_shifting_timestamps(legacy):
 
 
 @pytest.mark.asyncio
-async def test_c1_deduplicates_records_without_summing_overlapping_pages():
+async def test_c1_rejects_duplicate_intervals_in_a_response():
     payload = _payload()
     payload["data"] += deepcopy(payload["data"])
     payload["total"] = 4
     client = _PayloadClient({C1_IMPORT_PROFILE: payload})
-    records = await client.async_get_profile_data(
-        ean="test-ean", profile=C1_IMPORT_PROFILE, from_dt=START, to_dt=END
-    )
-    assert len(records) == 2
-    payload["data"][2]["value"] = 9
-    with pytest.raises(EgdApiError, match="konfliktní"):
+    with pytest.raises(EgdApiError, match="duplicitní"):
         await client.async_get_profile_data(
             ean="test-ean", profile=C1_IMPORT_PROFILE, from_dt=START, to_dt=END
         )

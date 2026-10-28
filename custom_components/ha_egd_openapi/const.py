@@ -31,6 +31,14 @@ DATA_URL = "https://data.distribuce24.cz/rest/spotreby"
 C1_IMPORT_PROFILE = "DCQC"
 C1_EXPORT_PROFILE = "DSQC"
 C1_PROFILES = frozenset({C1_IMPORT_PROFILE, C1_EXPORT_PROFILE})
+PROFILE_UNITS = {
+    "ICQ2": "kWh",
+    "ICC1": "kW",
+    "ISQ2": "kWh",
+    "ISC1": "kW",
+    C1_IMPORT_PROFILE: "kWh",
+    C1_EXPORT_PROFILE: "kWh",
+}
 LEGACY_C1_PROFILES = {
     "0.0.2.4.1.2.12.0.0.0.0.0.0.0.0.3.72.0": C1_IMPORT_PROFILE,
     "0.0.2.4.19.2.12.0.0.0.0.0.0.0.0.3.72.0": C1_EXPORT_PROFILE,
