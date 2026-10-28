@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "EG.D OpenAPI",
-        "description": "Zadejte přístupové údaje k EG.D OpenAPI. Pro měření C1 zvolte u obou profilů C1 (kWh). Pro měření A/B ponechte odpovídající profily A/B.",
+        "description": "Zadejte přístupové údaje k EG.D OpenAPI. Pro měření C1 zvolte C1 (kWh). Pokud Vaše odběrné místo nemá data o dodávce do sítě, vypněte její načítání.",
         "data": {
           "name": "Název",
           "ean": "EAN odběrného místa",
@@ -14,7 +14,8 @@
           "update_hour": "Hodina denní synchronizace",
           "update_minute": "Minuta denní synchronizace",
           "revalidate_days": "Kolik dnů zpětně kontrolovat",
-          "enable_diagnostics": "Sbírat diagnostická data"
+          "enable_diagnostics": "Sbírat diagnostická data",
+          "enable_export": "Načítat dodávku do sítě"
         }
       }
     },
@@ -37,9 +38,10 @@
           "update_hour": "Hodina denní synchronizace",
           "update_minute": "Minuta denní synchronizace",
           "revalidate_days": "Kolik dnů zpětně kontrolovat",
-          "enable_diagnostics": "Sbírat diagnostická data"
+          "enable_diagnostics": "Sbírat diagnostická data",
+          "enable_export": "Načítat dodávku do sítě"
         },
-        "description": "Zvolte profily podle typu Vašeho měření. Pro C1 vyberte u spotřeby i přetoků C1 (kWh). Denní kumulativní stavy číselníků se neimportují."
+        "description": "Pro měření C1 zvolte C1 (kWh). Pokud Vaše odběrné místo nemá data o dodávce do sítě, vypněte její načítání. Denní kumulativní stavy číselníků se neimportují."
       }
     },
     "error": {

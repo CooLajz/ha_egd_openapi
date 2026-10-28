@@ -35,6 +35,7 @@ from .const import (
     CONF_EAN,
     CONF_ENABLE_DIAGNOSTICS,
     CONF_EXPORT_PROFILE,
+    CONF_ENABLE_EXPORT,
     CONF_IMPORT_PROFILE,
     CONF_REVALIDATE_DAYS,
     CONF_UPDATE_HOUR,
@@ -46,6 +47,7 @@ from .const import (
     MAX_DIAGNOSTIC_EVENTS,
     STORE_KEY,
     STORE_VERSION,
+    normalize_profile,
 )
 from .statistics import async_import_external_statistics
 
@@ -142,7 +144,9 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 ATTR_LAST_EXPORT_STATUS,
             ),
         ):
-            profile = self.config_entry.options.get(option, self.config_entry.data[option])
+            profile = normalize_profile(
+                self.config_entry.options.get(option, self.config_entry.data[option])
+            )
             previous_profile = self._persisted.get(option)
             # Older stores predate C1 and have no profile fingerprint.
             changed = previous_profile != profile and (
@@ -160,7 +164,19 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 self._record_diagnostic_event(
                     "info", "profile_changed", {"direction": direction, "profile": profile}
                 )
+        if self._persisted.get(CONF_ENABLE_EXPORT, True) != self.export_enabled:
+            self._persisted.pop(ATTR_NEXT_SYNC_ATTEMPT_UTC, None)
+        self._persisted[CONF_ENABLE_EXPORT] = self.export_enabled
         self.data = self._build_state_from_persisted()
+
+    @property
+    def export_enabled(self) -> bool:
+        """Whether this metering point should have an export data series."""
+        return bool(
+            self.config_entry.options.get(
+                CONF_ENABLE_EXPORT, self.config_entry.data.get(CONF_ENABLE_EXPORT, True)
+            )
+        )
 
     def should_retry_refresh(self) -> bool:
         """Return whether latest expected import or export data are still missing.
@@ -176,6 +192,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             latest_available_utc=latest_available_utc,
             last_valid_import_ts=last_valid_import,
             last_valid_export_ts=last_valid_export,
+            export_enabled=self.export_enabled,
         )
 
     def should_refresh_on_startup(self) -> bool:
@@ -245,13 +262,15 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         """Refresh import/export state from EG.D."""
         ean = str(self.config_entry.data[CONF_EAN]).strip()
 
-        import_profile = self.config_entry.options.get(
-            CONF_IMPORT_PROFILE,
-            self.config_entry.data[CONF_IMPORT_PROFILE],
+        import_profile = normalize_profile(
+            self.config_entry.options.get(
+                CONF_IMPORT_PROFILE, self.config_entry.data[CONF_IMPORT_PROFILE]
+            )
         )
-        export_profile = self.config_entry.options.get(
-            CONF_EXPORT_PROFILE,
-            self.config_entry.data[CONF_EXPORT_PROFILE],
+        export_profile = normalize_profile(
+            self.config_entry.options.get(
+                CONF_EXPORT_PROFILE, self.config_entry.data[CONF_EXPORT_PROFILE]
+            )
         )
 
         now_utc = dt_util.utcnow().astimezone(timezone.utc)
@@ -268,14 +287,16 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             accessible_start_key=self._IMPORT_ACCESSIBLE_START_KEY,
             last_valid_key=ATTR_LAST_VALID_IMPORT_TS,
         )
-        export_from = await self._determine_start_timestamp(
-            ean=ean,
-            profile=export_profile,
-            latest_available_utc=latest_available_utc,
-            cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
-            accessible_start_key=self._EXPORT_ACCESSIBLE_START_KEY,
-            last_valid_key=ATTR_LAST_VALID_EXPORT_TS,
-        )
+        export_from = None
+        if self.export_enabled:
+            export_from = await self._determine_start_timestamp(
+                ean=ean,
+                profile=export_profile,
+                latest_available_utc=latest_available_utc,
+                cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
+                accessible_start_key=self._EXPORT_ACCESSIBLE_START_KEY,
+                last_valid_key=ATTR_LAST_VALID_EXPORT_TS,
+            )
         _LOGGER.debug(
             "Refreshing EG.D state for EAN %s: import profile %s from %s, export profile %s from %s, latest available %s",
             ean,
@@ -414,6 +435,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 latest_available_utc=latest_available_utc,
                 last_valid_import_ts=import_meta["last_valid_ts"],
                 last_valid_export_ts=export_meta["last_valid_ts"],
+                export_enabled=self.export_enabled,
             )
             else "ok"
         )
@@ -994,14 +1016,20 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         latest_available_utc: datetime,
         last_valid_import_ts: datetime | None,
         last_valid_export_ts: datetime | None,
+        export_enabled: bool = True,
     ) -> bool:
         """Return whether the latest expected import or export day is still missing."""
         latest_available_day = latest_available_utc.date()
         return (
             last_valid_import_ts is None
             or last_valid_import_ts.date() < latest_available_day
-            or last_valid_export_ts is None
-            or last_valid_export_ts.date() < latest_available_day
+            or (
+                export_enabled
+                and (
+                    last_valid_export_ts is None
+                    or last_valid_export_ts.date() < latest_available_day
+                )
+            )
         )
 
     @staticmethod
@@ -1125,14 +1153,19 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     def _get_latest_available_utc(self) -> datetime:
         """Return latest allowed EG.D quarter-hour timestamp.
 
-        EG.D allows querying only up to yesterday. Its `to` parameter behaves
-        like an exclusive boundary, so the newest safe local slot is 23:30; the
-        final 23:45 slot is repaired by the next day's revalidation.
+        C1 bounds include the final 23:45 slot without crossing midnight.
+        A/B retains its conservative 23:30 boundary and rolling revalidation.
         """
         now_local = dt_util.now()
+        profile = normalize_profile(
+            self.config_entry.options.get(
+                CONF_IMPORT_PROFILE, self.config_entry.data.get(CONF_IMPORT_PROFILE, "ICQ2")
+            )
+        )
+        latest_minute = 45 if profile in C1_PROFILES else 30
         latest_local = datetime.combine(
             now_local.date() - timedelta(days=1),
-            time(23, 30),
+            time(23, latest_minute),
             tzinfo=now_local.tzinfo,
         )
         return latest_local.astimezone(timezone.utc)

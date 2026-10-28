@@ -1,4 +1,4 @@
-"""C1 contract tests using the documented EG.D response, without live credentials."""
+"""C1 contract tests for the unified endpoint verified against a live meter."""
 
 from __future__ import annotations
 
@@ -6,12 +6,13 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
 pytest.importorskip("homeassistant")
 
-from custom_components.ha_egd_openapi import api, coordinator as coordinator_module
+from custom_components.ha_egd_openapi import coordinator as coordinator_module
 from custom_components.ha_egd_openapi.api import EgdApiClient, EgdApiError
 from custom_components.ha_egd_openapi.config_flow import (
     EgdConfigFlow,
@@ -23,33 +24,30 @@ from custom_components.ha_egd_openapi.const import (
     ATTR_LAST_VALID_EXPORT_TS,
     ATTR_LAST_VALID_IMPORT_TS,
     ATTR_NEXT_SYNC_ATTEMPT_UTC,
-    C1_DATA_SOURCE,
-    C1_DATA_URL,
     C1_EXPORT_PROFILE,
     C1_IMPORT_PROFILE,
+    CONF_ENABLE_EXPORT,
     CONF_EXPORT_PROFILE,
     CONF_IMPORT_PROFILE,
     DATA_URL,
+    LEGACY_C1_PROFILES,
 )
 from custom_components.ha_egd_openapi.coordinator import EgdDataUpdateCoordinator
 
 START = datetime(2026, 10, 27, tzinfo=timezone.utc)
-END = START + timedelta(hours=23, minutes=30)
+END = START + timedelta(hours=23, minutes=45)
 
 
-def _c1_payload(profile=C1_IMPORT_PROFILE, measurements=None):
-    """The documented nested C1 structure with fictional meter identifiers."""
+def _payload(profile=C1_IMPORT_PROFILE, records=None):
     return {
-        "EAN": "859182400000000000",
-        "MeasurementType": profile,
-        "MeasurementsValues": [
-            {
-                "SerialNumber": "test-meter",
-                "Measurements": measurements if measurements is not None else [
-                    {"datetime": "2026-10-27T01:15:00+01:00", "value": "0.013", "status": "W"},
-                    {"datetime": "2026-10-27T01:30:00+01:00", "value": "0.025", "status": "W"},
-                ],
-            }
+        "profile": profile,
+        "units": "kWh",
+        "total": len(records) if records is not None else 2,
+        "data": records
+        if records is not None
+        else [
+            {"timestamp": "2026-10-27T00:15:00Z", "value": 0.013, "status": "W"},
+            {"timestamp": "2026-10-27T00:30:00Z", "value": 0.025, "status": "W"},
         ],
     }
 
@@ -79,193 +77,284 @@ def _response(payload, status=200):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("profile", [C1_IMPORT_PROFILE, C1_EXPORT_PROFILE, "ICQ2", "ICC1"])
-async def test_request_routes_c1_without_changing_ab(profile):
-    """Check the actual HTTP request parameters, not just a URL helper."""
-    payload = _c1_payload(profile)
-    session = SimpleNamespace(get=MagicMock(return_value=_response(payload)))
+@pytest.mark.parametrize(
+    "profile",
+    [C1_IMPORT_PROFILE, C1_EXPORT_PROFILE, "ICQ2", "ICC1", *LEGACY_C1_PROFILES],
+)
+async def test_unified_request_routing_and_interval_boundaries(profile):
+    session = SimpleNamespace(get=MagicMock(return_value=_response({})))
     client = EgdApiClient(session, "test", "test")
     client._access_token = "test-token"
-
-    status, data = await client._async_request_profile_data(
-        ean="859182400000000000", profile=profile,
-        from_dt=START, to_dt=END, page_start=1, page_size=3000,
+    await client._async_request_profile_data(
+        ean="test-ean",
+        profile=profile,
+        from_dt=START,
+        to_dt=END,
+        page_start=1,
+        page_size=3000,
     )
-
-    assert status == 200
-    assert data == payload
     args, kwargs = session.get.call_args
+    assert args == (DATA_URL,)
     params = kwargs["params"]
-    assert params["from"] == "2026-10-27T00:00:00.000Z"
-    assert params["to"] == "2026-10-27T23:45:00.000Z"
-    assert params["profile"] == profile
-    if profile in (C1_IMPORT_PROFILE, C1_EXPORT_PROFILE):
-        assert args == (C1_DATA_URL,)
-        assert params["zdrojDat"] == C1_DATA_SOURCE
-        assert "pageStart" not in params
-        assert "pageSize" not in params
+    assert "zdrojDat" not in params
+    assert params["pageStart"] == "1" and params["pageSize"] == "3000"
+    expected_profile = LEGACY_C1_PROFILES.get(profile, profile)
+    assert params["profile"] == expected_profile
+    if expected_profile in (C1_IMPORT_PROFILE, C1_EXPORT_PROFILE):
+        assert params["from"] == "2026-10-26T23:59:59.999Z"
+        assert params["to"] == "2026-10-27T23:59:59.999Z"
     else:
-        assert args == (DATA_URL,)
-        assert "zdrojDat" not in params
-        assert params["pageStart"] == "1"
-        assert params["pageSize"] == "3000"
+        assert params["from"] == "2026-10-27T00:00:00.000Z"
+        assert params["to"] == "2026-10-28T00:00:00.000Z"
 
 
 @pytest.mark.asyncio
-async def test_c1_refreshes_expired_token_on_the_same_endpoint():
-    payload = _c1_payload()
+async def test_c1_refreshes_expired_token():
     session = SimpleNamespace(
-        get=MagicMock(side_effect=[_response({}, 401), _response(payload)]),
+        get=MagicMock(side_effect=[_response({}, 401), _response(_payload())]),
         post=MagicMock(return_value=_response({"access_token": "renewed-test-token"})),
     )
     client = EgdApiClient(session, "test", "test")
     client._access_token = "expired-test-token"
-
     records = await client._async_get_profile_data_chunk(
-        ean="859182400000000000", profile=C1_IMPORT_PROFILE, from_dt=START, to_dt=END,
+        ean="test-ean", profile=C1_IMPORT_PROFILE, from_dt=START, to_dt=END
     )
-
     assert len(records) == 2
     assert session.get.call_count == 2
-    assert all(call.args == (C1_DATA_URL,) for call in session.get.call_args_list)
-    assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer renewed-test-token"
-    session.post.assert_called_once()
+    assert all(call.args == (DATA_URL,) for call in session.get.call_args_list)
+    assert (
+        session.get.call_args.kwargs["headers"]["Authorization"]
+        == "Bearer renewed-test-token"
+    )
 
 
 @pytest.mark.asyncio
-async def test_documented_c1_response_produces_interval_energy():
-    client = _PayloadClient({C1_IMPORT_PROFILE: _c1_payload()})
+@pytest.mark.parametrize("day, intervals", [(27, 96), (25, 100)])
+async def test_c1_fetch_includes_every_quarter_with_exclusive_server_bounds(
+    day, intervals
+):
+    """Reproduce the live API's bounds, including the DST transition day."""
+    prague = ZoneInfo("Europe/Prague")
+    local_start = datetime(2026, 10, day, tzinfo=prague)
+    start = local_start.astimezone(timezone.utc)
+    end = (local_start + timedelta(days=1)).astimezone(timezone.utc) - timedelta(
+        minutes=15
+    )
+    points = [
+        {
+            "timestamp": (start + timedelta(minutes=15 * i)).isoformat(),
+            "value": 0.25,
+            "status": "W",
+        }
+        for i in range(intervals)
+    ]
+
+    def get_response(url, *, params, **kwargs):
+        lower = datetime.fromisoformat(params["from"].replace("Z", "+00:00"))
+        upper = datetime.fromisoformat(params["to"].replace("Z", "+00:00"))
+        selected = [
+            point
+            for point in points
+            if lower < datetime.fromisoformat(point["timestamp"]) < upper
+        ]
+        return _response(_payload(records=selected))
+
+    session = SimpleNamespace(get=MagicMock(side_effect=get_response))
+    client = EgdApiClient(session, "test", "test")
+    client._access_token = "test-token"
     records = await client.async_get_profile_data(
-        ean="859182400000000000", profile=C1_IMPORT_PROFILE, from_dt=START, to_dt=END,
+        ean="test-ean",
+        profile=C1_IMPORT_PROFILE,
+        from_dt=start,
+        to_dt=end,
+    )
+    assert len(records) == intervals
+    assert records[0].timestamp == start
+    assert records[-1].timestamp == end
+    assert sum(record.value for record in records) == intervals * 0.25
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_c1_payload_produces_energy_without_shifting_timestamps(legacy):
+    client = _PayloadClient({C1_IMPORT_PROFILE: _payload()})
+    profile = next(iter(LEGACY_C1_PROFILES)) if legacy else C1_IMPORT_PROFILE
+    records = await client.async_get_profile_data(
+        ean="test-ean", profile=profile, from_dt=START, to_dt=END
     )
     assert [record.value for record in records] == [0.013, 0.025]
     assert [record.timestamp for record in records] == [
-        START + timedelta(minutes=15), START + timedelta(minutes=30),
+        START + timedelta(minutes=15),
+        START + timedelta(minutes=30),
     ]
-    assert all(record.status == "W" for record in records)
-    assert len(client.requests) == 1
-
-
-def test_c1_distinguishes_repeated_local_hour_at_dst_change():
-    payload = _c1_payload(measurements=[
-        {"datetime": "2026-10-25T02:15:00+01:00", "value": "2", "status": "W"},
-        {"datetime": "2026-10-25T02:15:00+02:00", "value": "1", "status": "W"},
-    ])
-    records = EgdApiClient._parse_c1_records(payload, profile=C1_IMPORT_PROFILE)
-    assert [record.timestamp.isoformat() for record in records] == [
-        "2026-10-25T00:15:00+00:00", "2026-10-25T01:15:00+00:00",
-    ]
-    assert [record.value for record in records] == [1, 2]
-
-
-def test_c1_does_not_double_count_duplicate_meter_groups():
-    payload = _c1_payload()
-    payload["MeasurementsValues"].append(deepcopy(payload["MeasurementsValues"][0]))
-    assert len(EgdApiClient._parse_c1_records(payload, profile=C1_IMPORT_PROFILE)) == 2
-
-    payload["MeasurementsValues"][1]["Measurements"][0]["value"] = "9"
-    with pytest.raises(EgdApiError, match="konfliktní"):
-        EgdApiClient._parse_c1_records(payload, profile=C1_IMPORT_PROFILE)
-
-
-@pytest.mark.parametrize("payload", [
-    {}, [], {"total": 0, "data": []}, {"MeasurementsValues": None},
-    {"MeasurementsValues": [{}]},
-    _c1_payload(profile="0.0.2.1.1.1.12.0.0.0.0.0.0.0.0.3.72.0"),
-    _c1_payload(measurements=[{"datetime": "2026-10-27T01:15:00", "value": "1", "status": "W"}]),
-    _c1_payload(measurements=[{"datetime": "invalid", "value": "1", "status": "W"}]),
-    _c1_payload(measurements=[{"datetime": "2026-10-27T01:15:00Z", "value": "NaN", "status": "W"}]),
-    _c1_payload(measurements=[{"datetime": "2026-10-27T01:15:00Z", "value": None, "status": "W"}]),
-])
-def test_c1_rejects_unexpected_responses_instead_of_reporting_no_data(payload):
-    with pytest.raises(EgdApiError):
-        EgdApiClient._parse_c1_records(payload, profile=C1_IMPORT_PROFILE)
-
-
-def test_c1_accepts_empty_results_and_missing_invalid_measurements():
-    assert EgdApiClient._parse_c1_records(
-        {"MeasurementsValues": []}, profile=C1_IMPORT_PROFILE,
-    ) == []
-    assert EgdApiClient._parse_c1_records(
-        _c1_payload(measurements=[
-            {"datetime": "2026-10-27T01:15:00+01:00", "value": None, "status": "F"},
-        ]), profile=C1_IMPORT_PROFILE,
-    ) == []
+    assert client.requests[0]["profile"] == C1_IMPORT_PROFILE
 
 
 @pytest.mark.asyncio
-async def test_c1_clips_inclusive_api_boundaries_between_chunks():
-    client = _PayloadClient({C1_IMPORT_PROFILE: _c1_payload()})
-    records = await client._async_get_profile_data_chunk(
-        ean="859182400000000000", profile=C1_IMPORT_PROFILE,
-        from_dt=START, to_dt=START + timedelta(minutes=15),
+async def test_c1_deduplicates_records_without_summing_overlapping_pages():
+    payload = _payload()
+    payload["data"] += deepcopy(payload["data"])
+    payload["total"] = 4
+    client = _PayloadClient({C1_IMPORT_PROFILE: payload})
+    records = await client.async_get_profile_data(
+        ean="test-ean", profile=C1_IMPORT_PROFILE, from_dt=START, to_dt=END
     )
-    assert len(records) == 1
-    assert records[0].value == 0.013
-
-
-@pytest.mark.asyncio
-async def test_ab_does_not_silently_swallow_c1_responses():
-    client = _PayloadClient({"ICQ2": _c1_payload()})
-    with pytest.raises(EgdApiError, match="zvolte profily C1"):
-        await client._async_get_profile_data_chunk(
-            ean="859182400000000000", profile="ICQ2", from_dt=START, to_dt=END,
+    assert len(records) == 2
+    payload["data"][2]["value"] = 9
+    with pytest.raises(EgdApiError, match="konfliktní"):
+        await client.async_get_profile_data(
+            ean="test-ean", profile=C1_IMPORT_PROFILE, from_dt=START, to_dt=END
         )
 
 
-def _entry(import_profile=C1_IMPORT_PROFILE, export_profile=C1_EXPORT_PROFILE):
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        "invalid",
+        {"MeasurementsValues": []},
+        {"data": None},
+        {"data": [], "total": None},
+        _payload(records=[{"timestamp": "invalid", "value": 1, "status": "W"}]),
+        _payload(
+            records=[{"timestamp": "2026-10-27T00:15:00", "value": 1, "status": "W"}]
+        ),
+        _payload(
+            records=[
+                {"timestamp": "2026-10-27T00:15:00Z", "value": "NaN", "status": "W"}
+            ]
+        ),
+        _payload(
+            records=[
+                {"timestamp": "2026-10-27T00:15:00Z", "value": None, "status": "W"}
+            ]
+        ),
+    ],
+)
+async def test_c1_rejects_invalid_data_instead_of_reporting_no_data(payload):
+    client = _PayloadClient({C1_IMPORT_PROFILE: payload})
+    with pytest.raises(EgdApiError):
+        await client.async_get_profile_data(
+            ean="test-ean", profile=C1_IMPORT_PROFILE, from_dt=START, to_dt=END
+        )
+
+
+@pytest.mark.asyncio
+async def test_c1_accepts_empty_energy_series():
+    client = _PayloadClient(
+        {C1_EXPORT_PROFILE: _payload(C1_EXPORT_PROFILE, records=[])}
+    )
+    assert (
+        await client.async_get_profile_data(
+            ean="test-ean", profile=C1_EXPORT_PROFILE, from_dt=START, to_dt=END
+        )
+        == []
+    )
+
+
+def _entry(
+    import_profile=C1_IMPORT_PROFILE,
+    export_profile=C1_EXPORT_PROFILE,
+    enable_export=True,
+):
     return SimpleNamespace(
-        entry_id="test-entry", title="Test EG.D", options={}, data={
-            "ean": "859182400000000000", "name": "Test EG.D",
-            "client_id": "test", "client_secret": "test",
-            CONF_IMPORT_PROFILE: import_profile, CONF_EXPORT_PROFILE: export_profile,
-            "update_hour": 18, "update_minute": 40,
+        entry_id="test-entry",
+        title="Test EG.D",
+        options={},
+        data={
+            "ean": "test-ean",
+            "name": "Test EG.D",
+            "client_id": "test",
+            "client_secret": "test",
+            CONF_IMPORT_PROFILE: import_profile,
+            CONF_EXPORT_PROFILE: export_profile,
+            CONF_ENABLE_EXPORT: enable_export,
+            "update_hour": 18,
+            "update_minute": 40,
         },
     )
 
 
 @pytest.mark.asyncio
-async def test_c1_refresh_imports_energy_without_power_conversion_or_double_counting(monkeypatch):
-    """Run parsing, hourly aggregation and cumulative rows as one refresh path."""
+@pytest.mark.parametrize("enable_export", [True, False])
+async def test_c1_refresh_imports_kwh_once_and_respects_disabled_export(
+    monkeypatch, enable_export
+):
     coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
     coordinator.hass = SimpleNamespace()
-    coordinator.config_entry = _entry()
+    coordinator.config_entry = _entry(enable_export=enable_export)
     coordinator._persisted = {}
     coordinator._store = SimpleNamespace(async_save=AsyncMock())
-    coordinator.client = _PayloadClient({
-        C1_IMPORT_PROFILE: _c1_payload(),
-        C1_EXPORT_PROFILE: _c1_payload(C1_EXPORT_PROFILE),
-    })
-    monkeypatch.setattr(coordinator, "_hard_min_for_profile", lambda profile, latest: START)
+    coordinator.client = _PayloadClient(
+        {C1_IMPORT_PROFILE: _payload(), C1_EXPORT_PROFILE: _payload(C1_EXPORT_PROFILE)}
+    )
+    monkeypatch.setattr(
+        coordinator, "_hard_min_for_profile", lambda profile, latest: START
+    )
     monkeypatch.setattr(coordinator, "_get_latest_available_utc", lambda: END)
     writer = AsyncMock()
     monkeypatch.setattr(coordinator_module, "async_import_external_statistics", writer)
-
     state = await coordinator._async_refresh_energy_state()
     assert state.total_import_kwh == 0.038
-    assert state.total_export_kwh == 0.038
+    assert state.total_export_kwh == (0.038 if enable_export else 0)
     assert state.sync_status == "ok"
-    assert writer.await_count == 2
+    assert writer.await_count == (2 if enable_export else 1)
     for call in writer.await_args_list:
-        assert call.kwargs["source"] == "ha_egd_openapi"
         assert call.kwargs["rows"] == [{"start": START, "state": 0.038, "sum": 0.038}]
-
+    if not enable_export:
+        assert all(
+            request["profile"] == C1_IMPORT_PROFILE
+            for request in coordinator.client.requests
+        )
     writer.reset_mock()
     state = await coordinator._async_refresh_energy_state()
     assert state.total_import_kwh == 0.038
-    assert state.total_export_kwh == 0.038
     writer.assert_not_awaited()
 
 
+def test_c1_dst_day_contains_100_distinct_quarters_and_preserves_energy():
+    coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
+    start = datetime(2026, 10, 24, 22, tzinfo=timezone.utc)
+    from custom_components.ha_egd_openapi.api import IntervalRecord
+
+    records = [
+        IntervalRecord(start + timedelta(minutes=15 * i), 0.5, "W") for i in range(100)
+    ]
+    hours, metadata = coordinator._process_records_hourly(
+        records=records, profile=C1_IMPORT_PROFILE
+    )
+    assert len(hours) == 25
+    assert sum(hours.values()) == 50
+    assert metadata["last_valid_ts"] == start + timedelta(minutes=15 * 99)
+
+
+def test_c1_latest_slot_includes_last_quarter_without_today_boundary(monkeypatch):
+    coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
+    coordinator.config_entry = _entry()
+    monkeypatch.setattr(
+        coordinator_module.dt_util,
+        "now",
+        lambda: datetime(2026, 10, 28, 20, tzinfo=ZoneInfo("Europe/Prague")),
+    )
+    assert coordinator._get_latest_available_utc() == datetime(
+        2026, 10, 27, 22, 45, tzinfo=timezone.utc
+    )
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("previous_profile, selected_profile, reset", [
-    (None, "ICQ2", False),
-    (None, C1_IMPORT_PROFILE, True),
-    ("ICQ2", C1_IMPORT_PROFILE, True),
-    (C1_IMPORT_PROFILE, C1_IMPORT_PROFILE, False),
-])
-async def test_profile_switch_revalidates_history_and_preserves_cached_energy(
-    previous_profile, selected_profile, reset,
+@pytest.mark.parametrize(
+    "previous_profile, selected_profile, reset",
+    [
+        (None, "ICQ2", False),
+        (None, C1_IMPORT_PROFILE, True),
+        ("ICQ2", C1_IMPORT_PROFILE, True),
+        (C1_IMPORT_PROFILE, C1_IMPORT_PROFILE, False),
+        (next(iter(LEGACY_C1_PROFILES)), next(iter(LEGACY_C1_PROFILES)), True),
+    ],
+)
+async def test_profile_switch_and_beta1_migration_revalidate_without_deleting_history(
+    previous_profile, selected_profile, reset
 ):
     coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
     coordinator.config_entry = _entry(selected_profile)
@@ -283,56 +372,60 @@ async def test_profile_switch_revalidates_history_and_preserves_cached_energy(
     if previous_profile is not None:
         stored[CONF_IMPORT_PROFILE] = previous_profile
     coordinator._store = SimpleNamespace(async_load=AsyncMock(return_value=stored))
-
     await coordinator.async_load()
-
-    assert coordinator._persisted["import_hourly_deltas"] == {"2026-10-26T00:00:00Z": 2.5}
-    assert coordinator._persisted[CONF_IMPORT_PROFILE] == selected_profile
+    assert coordinator._persisted["import_hourly_deltas"] == {
+        "2026-10-26T00:00:00Z": 2.5
+    }
     assert ("import_hourly_deltas_complete" not in coordinator._persisted) == reset
-    assert ("import_accessible_start" not in coordinator._persisted) == reset
     assert coordinator.should_refresh_on_startup() == reset
-
-
-def test_config_schema_accepts_c1_profiles():
-    data = _build_user_schema()(_entry().data)
-    assert data[CONF_IMPORT_PROFILE] == C1_IMPORT_PROFILE
-    assert data[CONF_EXPORT_PROFILE] == C1_EXPORT_PROFILE
 
 
 def _options_flow(entry):
     flow = EgdOptionsFlowHandler()
     flow.handler = entry.entry_id
-    flow.hass = SimpleNamespace(config_entries=SimpleNamespace(
-        async_get_known_entry=lambda entry_id: entry,
-    ))
+    flow.hass = SimpleNamespace(
+        config_entries=SimpleNamespace(async_get_known_entry=lambda entry_id: entry)
+    )
     return flow
+
+
+def test_config_schema_accepts_c1_and_upgrades_beta1_defaults():
+    data = _build_user_schema()(_entry().data)
+    assert data[CONF_IMPORT_PROFILE] == C1_IMPORT_PROFILE
+    defaults = _entry(next(iter(LEGACY_C1_PROFILES))).data
+    assert _build_user_schema(defaults)({})[CONF_IMPORT_PROFILE] == C1_IMPORT_PROFILE
 
 
 @pytest.mark.asyncio
 async def test_config_rejects_mixed_api_types_before_authentication():
-    flow = EgdConfigFlow()
-    result = await flow.async_step_user(_entry(C1_IMPORT_PROFILE, "ISQ2").data)
+    result = await EgdConfigFlow().async_step_user(
+        _entry(C1_IMPORT_PROFILE, "ISQ2").data
+    )
     assert result["errors"] == {"base": "mixed_measurement_types"}
 
 
 @pytest.mark.asyncio
-async def test_options_allow_switching_existing_entry_to_c1():
-    entry = _entry("ICQ2", "ISQ2")
-    flow = _options_flow(entry)
-    result = await flow.async_step_init({
-        CONF_IMPORT_PROFILE: C1_IMPORT_PROFILE, CONF_EXPORT_PROFILE: C1_EXPORT_PROFILE,
-        "update_hour": 18, "update_minute": 40, "revalidate_days": 31,
-        "enable_diagnostics": True,
-    })
+async def test_options_allow_switching_to_c1_and_disabling_missing_export():
+    flow = _options_flow(_entry("ICQ2", "ISQ2"))
+    result = await flow.async_step_init(
+        {
+            CONF_IMPORT_PROFILE: C1_IMPORT_PROFILE,
+            CONF_EXPORT_PROFILE: "ISQ2",
+            CONF_ENABLE_EXPORT: False,
+            "update_hour": 18,
+            "update_minute": 40,
+            "revalidate_days": 31,
+            "enable_diagnostics": True,
+        }
+    )
     assert result["data"][CONF_IMPORT_PROFILE] == C1_IMPORT_PROFILE
-    assert result["data"][CONF_EXPORT_PROFILE] == C1_EXPORT_PROFILE
+    assert result["data"][CONF_ENABLE_EXPORT] is False
 
 
 @pytest.mark.asyncio
 async def test_options_reject_mixed_profiles_and_keep_submitted_values():
-    flow = _options_flow(_entry("ICQ2", "ISQ2"))
-    result = await flow.async_step_init({
-        CONF_IMPORT_PROFILE: C1_IMPORT_PROFILE, CONF_EXPORT_PROFILE: "ISQ2",
-    })
+    result = await _options_flow(_entry("ICQ2", "ISQ2")).async_step_init(
+        {CONF_IMPORT_PROFILE: C1_IMPORT_PROFILE, CONF_EXPORT_PROFILE: "ISQ2"}
+    )
     assert result["errors"] == {"base": "mixed_measurement_types"}
     assert result["data_schema"]({})[CONF_IMPORT_PROFILE] == C1_IMPORT_PROFILE

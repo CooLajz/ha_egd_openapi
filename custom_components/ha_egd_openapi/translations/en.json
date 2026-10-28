@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "EG.D OpenAPI",
-        "description": "Enter your EG.D OpenAPI credentials. For C1 metering, select C1 (kWh) for both profiles. For A/B metering, keep the corresponding A/B profiles.",
+        "description": "Enter your EG.D OpenAPI credentials. For C1, select C1 (kWh). If your metering point has no export data, disable fetching export energy.",
         "data": {
           "name": "Name",
           "ean": "EAN metering point",
@@ -14,7 +14,8 @@
           "update_hour": "Daily sync hour",
           "update_minute": "Daily sync minute",
           "revalidate_days": "Days to revalidate",
-          "enable_diagnostics": "Collect diagnostic data"
+          "enable_diagnostics": "Collect diagnostic data",
+          "enable_export": "Fetch export energy"
         }
       }
     },
@@ -37,9 +38,10 @@
           "update_hour": "Daily sync hour",
           "update_minute": "Daily sync minute",
           "revalidate_days": "Days to revalidate",
-          "enable_diagnostics": "Collect diagnostic data"
+          "enable_diagnostics": "Collect diagnostic data",
+          "enable_export": "Fetch export energy"
         },
-        "description": "Select profiles matching your metering type. For C1, select C1 (kWh) for both import and export. Cumulative daily meter registers are not imported."
+        "description": "For C1, select C1 (kWh). Disable fetching export energy if your metering point has no export data. Daily cumulative registers are not imported."
       }
     },
     "error": {

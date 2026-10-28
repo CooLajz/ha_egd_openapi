@@ -12,7 +12,7 @@
   <a href="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml">
     <img src="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml/badge.svg" alt="Hassfest validation">
   </a>
-  <img src="https://img.shields.io/badge/version-1.1.0--beta.1-orange" alt="Version 1.1.0-beta.1">
+  <img src="https://img.shields.io/badge/version-1.1.0--beta.2-orange" alt="Version 1.1.0-beta.2">
 </p>
 
 # EG.D OpenAPI pro Home Assistant
@@ -21,19 +21,21 @@ Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D 
 
 ## Testovací podpora měření C1
 
-Větev `test/c1-support`, verze `1.1.0-beta.1`, přidává podporu měření C1 podle [novějšího oficiálního návodu EG.D](https://www.egd.cz/sites/default/files/2025-12/uzivatelsky_navod_openapi_abc_0.pdf). Automatické testy ověřují požadavky, zpracování odpovědí a přípravu statistik. Provoz proti skutečnému účtu C1 ani testovacímu prostředí EG.D zatím ověřen nebyl.
+Větev `test/c1-support`, verze `1.1.0-beta.2`, podporuje měření C1 přes sjednocené rozhraní `/rest/spotreby` a profily `DCQC` (odběr) a `DSQC` (dodávka). Požadavky byly ověřeny na skutečném odběrném místě C1 a denní součty přesně porovnány s Distribucí24, včetně dne změny času. Zápis do Recorderu ověřují automatické testy; nasazení této verze do běžícího Home Assistantu se ověřuje samostatně.
 
 Po instalaci testovacího vydání a restartu Home Assistantu:
 
 1. Otevřete nastavení integrace EG.D OpenAPI.
-2. Pro měření C1 zvolte **C1 (kWh)** u profilu spotřeby i přetoků. Pro měření A/B ponechte příslušné profily A/B.
-3. Zapněte sběr diagnostických dat a uložte nastavení.
-4. Vyčkejte na dokončení úvodního načtení. Další pokus můžete vyvolat akcí `ha_egd_openapi.force_refresh`.
+2. Pro měření C1 zvolte **C1 (kWh)** u profilu spotřeby. Pokud načítáte také dodávku, zvolte C1 i u profilu přetoků. Pro měření A/B ponechte příslušné profily A/B.
+3. Pokud odběrné místo nemá data o dodávce do sítě, vypněte **Načítat dodávku do sítě**. Chybějící řada přetoků pak nebude způsobovat stav čekání na data ani další požadavky na API.
+4. Zapněte sběr diagnostických dat a uložte nastavení. Vyčkejte na dokončení úvodního načtení; další pokus můžete vyvolat akcí `ha_egd_openapi.force_refresh`.
 5. Zkontrolujte spotřebu a případně stáhněte diagnostiku; před jejím zveřejněním ověřte anonymizaci přístupových údajů a EAN.
 
-C1 používá jiné rozhraní a jiné kódy profilů než A/B. Integrace pro C1 načítá **čtvrthodinové energie celého odběrného místa** (`zdrojDat=ODBERNE_MISTO`). Denní kumulativní stavy číselníků ani samostatné tarify VT/NT tato verze neimportuje. Dostupnost denních souhrnů v portálu sama nepotvrzuje dostupnost těchto čtvrthodinových dat přes API.
+C1 načítá **čtvrthodinové energie v kWh**. Denní součty vznikají sečtením intervalů. Denní kumulativní stavy číselníků ani samostatné tarify VT/NT tato verze neimportuje. Hranice požadavků zahrnují i první a poslední čtvrthodinu dne. Časové značky se převádějí do UTC bez posouvání měření do předchozího intervalu.
 
-Při změně profilu integrace znovu ověří dostupnou historii. Zachová přitom dosavadní hodinovou cache i statistiky Recorderu a přepíše překrývající se hodiny; historii není nutné mazat. Prázdná odpověď A/B sama nezpůsobí přepnutí na C1.
+Číselné profily z první bety se automaticky převádějí na `DCQC` a `DSQC`. Při změně profilu integrace znovu ověří dostupnou historii. Zachová přitom dosavadní hodinovou cache i statistiky Recorderu a přepíše překrývající se hodiny; historii není nutné mazat. Prázdná odpověď A/B sama nezpůsobí přepnutí na C1.
+
+Ověřenou cestu C1 pomohlo najít porovnání konfigurace rozhraní s projektem [minx-code/ha-egd-cz-openapi](https://github.com/minx-code/ha-egd-cz-openapi). Číselné profily přes `/rest/c/spotreby` uvedené v dostupném návodu EG.D u testovaného místa vracely chybu oprávnění, zatímco `DCQC` přes sjednocené rozhraní poskytuje data.
 
 ## K čemu integrace slouží
 
@@ -118,7 +120,7 @@ Poznámka k převodu hodnot:
 - profily `ICC1` a `ISC1` integrace převádí na `kWh` dělením čtyřmi.
 - energie C1 jsou již v `kWh` a čtyřmi se nedělí.
 
-Pro C1 se používá `/rest/c/spotreby` a profily energie `0.0.2.4.1.2.12.0.0.0.0.0.0.0.0.3.72.0` (odběr) a `0.0.2.4.19.2.12.0.0.0.0.0.0.0.0.3.72.0` (dodávka). Původní profily A/B nadále používají `/rest/spotreby`.
+Pro C1 se používají profily `DCQC` (odběr) a `DSQC` (dodávka) přes `/rest/spotreby`. Původní profily A/B nadále používají stejné rozhraní a své dosavadní kódy.
 
 ## Omezení a specifika EG.D API
 
@@ -170,6 +172,7 @@ Integrace se přidává přes:
 - `Client Secret`: tajný klíč pro EG.D OpenAPI.
 - `Profil spotřeby`: profil pro odběr.
 - `Profil přetoků`: profil pro dodávku.
+- `Načítat dodávku do sítě`: vypněte, pokud odběrné místo nemá data o přetocích.
 - `Hodina denní synchronizace`: kdy se má provádět pravidelný denní import.
 - `Minuta denní synchronizace`: minuta pravidelné synchronizace.
 - `Kolik dnů zpětně kontrolovat`: počet dní, které se mají při každé synchronizaci znovu ověřit.

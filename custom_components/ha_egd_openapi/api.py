@@ -11,7 +11,7 @@ from typing import Any, Callable
 import aiohttp
 from aiohttp import ClientError
 
-from .const import C1_DATA_SOURCE, C1_DATA_URL, C1_PROFILES, DATA_URL, OAUTH_URL
+from .const import C1_PROFILES, DATA_URL, OAUTH_URL, normalize_profile
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ VALIDATION_ERROR_FRAGMENT = "validation_error"
 DEFAULT_PAGE_SIZE = 3000
 MAX_PROFILE_CHUNK = timedelta(days=30, hours=23, minutes=45)
 INTERVAL_LENGTH = timedelta(minutes=15)
+MILLISECOND = timedelta(milliseconds=1)
 
 
 def _format_egd_timestamp(value: datetime) -> str:
@@ -204,20 +205,25 @@ class EgdApiClient:
         page_size: int,
     ) -> tuple[int, Any]:
         """Request one page of profile data and refresh token once on auth failure."""
+        profile = normalize_profile(profile)
         is_c1 = profile in C1_PROFILES
-        data_url = C1_DATA_URL if is_c1 else DATA_URL
         params = {
             "ean": ean,
             "profile": profile,
             "from": _format_egd_timestamp(from_dt),
             "to": _format_egd_profile_to(to_dt),
+            "pageStart": str(page_start),
+            "pageSize": str(page_size),
         }
         if is_c1:
-            # C1 has no documented pagination; time chunks bound response size.
-            params["zdrojDat"] = C1_DATA_SOURCE
-        else:
-            params["pageStart"] = str(page_start)
-            params["pageSize"] = str(page_size)
+            # Live DCQC responses exclude both bounds. Enclose the requested
+            # slots while keeping the upper bound before today's local midnight.
+            params["from"] = (from_dt.astimezone(timezone.utc) - MILLISECOND).isoformat(
+                timespec="milliseconds"
+            ).replace("+00:00", "Z")
+            params["to"] = (
+                to_dt.astimezone(timezone.utc) + INTERVAL_LENGTH - MILLISECOND
+            ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         _LOGGER.debug(
             "Requesting EG.D data for EAN %s profile %s from %s to %s (pageStart=%s pageSize=%s)",
             ean,
@@ -246,7 +252,7 @@ class EgdApiClient:
             headers = {"Authorization": f"Bearer {token}"}
             try:
                 async with self._session.get(
-                    data_url, params=params, headers=headers, timeout=60
+                    DATA_URL, params=params, headers=headers, timeout=60
                 ) as response:
                     if response.status in (401, 403):
                         body = (await response.text()).strip()
@@ -354,6 +360,7 @@ class EgdApiClient:
         """
         if from_dt.tzinfo is None or to_dt.tzinfo is None:
             raise ValueError("from_dt and to_dt must be timezone-aware")
+        profile = normalize_profile(profile)
         effective_from = max(from_dt.astimezone(timezone.utc), _safe_three_year_cap())
         effective_to = to_dt.astimezone(timezone.utc)
         if effective_from > effective_to:
@@ -399,6 +406,13 @@ class EgdApiClient:
             )
             chunk_start = chunk_end + timedelta(minutes=15)
 
+        if profile in C1_PROFILES:
+            unique: dict[datetime, IntervalRecord] = {}
+            for record in all_records:
+                if record.timestamp in unique and unique[record.timestamp] != record:
+                    raise EgdApiError("API C1 vrátilo konfliktní měření pro stejný čas.")
+                unique[record.timestamp] = record
+            all_records = list(unique.values())
         all_records.sort(key=lambda rec: rec.timestamp)
         self._log_diagnostic(
             "info",
@@ -411,42 +425,6 @@ class EgdApiClient:
         )
         return all_records
 
-    @staticmethod
-    def _parse_c1_records(data: Any, *, profile: str) -> list[IntervalRecord]:
-        """Decode C1 interval energy, normalizing offsets before deduplication."""
-        if not isinstance(data, dict) or not isinstance(data.get("MeasurementsValues"), list):
-            raise EgdApiError("API C1 vrátilo neočekávaný formát odpovědi (MeasurementsValues).")
-        if data.get("MeasurementType", profile) != profile:
-            raise EgdApiError("API C1 vrátilo jiný profil měření, než byl požadován.")
-
-        records: dict[datetime, IntervalRecord] = {}
-        for group in data["MeasurementsValues"]:
-            if not isinstance(group, dict) or not isinstance(group.get("Measurements"), list):
-                raise EgdApiError("API C1 vrátilo neočekávaný formát odpovědi (Measurements).")
-            for item in group["Measurements"]:
-                if not isinstance(item, dict) or "datetime" not in item or "status" not in item:
-                    raise EgdApiError("API C1 vrátilo neplatný záznam měření.")
-                status = str(item.get("status", ""))
-                # A missing/unusable measurement can have no numeric value.
-                if item.get("value") is None and status != "W":
-                    continue
-                try:
-                    timestamp = datetime.fromisoformat(item["datetime"].replace("Z", "+00:00"))
-                    if timestamp.tzinfo is None:
-                        raise ValueError("Missing timezone")
-                    value = float(item["value"])
-                    if not isfinite(value):
-                        raise ValueError("Non-finite energy")
-                except (KeyError, TypeError, ValueError, AttributeError) as err:
-                    raise EgdApiError("API C1 vrátilo neplatný čas nebo hodnotu měření.") from err
-                timestamp = timestamp.astimezone(timezone.utc)
-                record = IntervalRecord(timestamp=timestamp, value=value, status=status)
-                if timestamp in records and records[timestamp] != record:
-                    # Never sum overlapping meter groups as extra consumption.
-                    raise EgdApiError("API C1 vrátilo konfliktní měření pro stejný čas.")
-                records[timestamp] = record
-        return sorted(records.values(), key=lambda record: record.timestamp)
-
     async def _async_get_profile_data_chunk(
         self,
         *,
@@ -457,6 +435,7 @@ class EgdApiClient:
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> list[IntervalRecord]:
         """Fetch one API chunk including paging."""
+        profile = normalize_profile(profile)
         # In practice EG.D pagination behaves as 1-based even though the PDF
         # example shows PageStart=0. Using 0 can return an empty first page
         # without an explicit API error.
@@ -479,26 +458,12 @@ class EgdApiClient:
                         f"Data request failed: HTTP {status} {data}", payload=data
                     )
                 raise EgdApiError(f"Data request failed: HTTP {status} {data}")
-            if profile in C1_PROFILES:
-                records = [
-                    record
-                    for record in self._parse_c1_records(data, profile=profile)
-                    if from_dt <= record.timestamp <= to_dt
-                ]
-                self._log_diagnostic(
-                    "debug",
-                    "profile_chunk_loaded_c1",
-                    {"profile": profile, "records": len(records), "data_source": C1_DATA_SOURCE},
-                )
-                return records
-            if isinstance(data, dict) and "MeasurementsValues" in data:
-                raise EgdApiError("API vrátilo data C1. V nastavení zvolte profily C1.")
             if isinstance(data, dict):
                 payloads = [data]
             elif isinstance(data, list):
                 payloads = data
             else:
-                payloads = []
+                raise EgdApiError("API vrátilo neočekávaný formát profilových dat.")
 
             if not payloads:
                 self._log_diagnostic(
@@ -513,15 +478,31 @@ class EgdApiClient:
                 return records
 
             payload = payloads[0]
-            batch = payload.get("data", [])
-            total = int(payload.get("total", len(batch)))
+            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                raise EgdApiError("API vrátilo neočekávaný formát profilových dat (data).")
+            batch = payload["data"]
+            try:
+                total = int(payload.get("total", len(batch)))
+            except (TypeError, ValueError) as err:
+                raise EgdApiError("API vrátilo neplatný počet záznamů.") from err
 
             for item in batch:
-                ts = datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00"))
+                try:
+                    ts = datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        raise ValueError("Missing timezone")
+                    raw_value = item.get("value", 0.0)
+                    if raw_value is None and item.get("status") not in {"W", "IU012"}:
+                        raw_value = 0.0
+                    value = float(raw_value)
+                    if not isfinite(value):
+                        raise ValueError("Non-finite energy")
+                except (KeyError, TypeError, ValueError, AttributeError) as err:
+                    raise EgdApiError("API vrátilo neplatný čas nebo hodnotu měření.") from err
                 records.append(
                     IntervalRecord(
-                        timestamp=ts,
-                        value=float(item.get("value", 0.0)),
+                        timestamp=ts.astimezone(timezone.utc),
+                        value=value,
                         status=str(item.get("status", "")),
                     )
                 )

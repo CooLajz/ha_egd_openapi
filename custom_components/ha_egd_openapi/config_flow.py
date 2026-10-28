@@ -20,6 +20,7 @@ from .const import (
     CONF_CLIENT_SECRET,
     CONF_EAN,
     CONF_EXPORT_PROFILE,
+    CONF_ENABLE_EXPORT,
     CONF_IMPORT_PROFILE,
     CONF_REVALIDATE_DAYS,
     CONF_UPDATE_HOUR,
@@ -32,6 +33,7 @@ from .const import (
     DEFAULT_UPDATE_HOUR,
     DEFAULT_UPDATE_MINUTE,
     DOMAIN,
+    normalize_profile,
 )
 
 IMPORT_OPTIONS = [
@@ -47,14 +49,19 @@ EXPORT_OPTIONS = [
 
 
 def _profiles_match(data: dict[str, Any]) -> bool:
-    """Both directions must use the same measurement API."""
-    return (data[CONF_IMPORT_PROFILE] in C1_PROFILES) == (
-        data[CONF_EXPORT_PROFILE] in C1_PROFILES
+    """Enabled directions must use profiles for the same metering type."""
+    if not data.get(CONF_ENABLE_EXPORT, True):
+        return True
+    return (normalize_profile(data[CONF_IMPORT_PROFILE]) in C1_PROFILES) == (
+        normalize_profile(data[CONF_EXPORT_PROFILE]) in C1_PROFILES
     )
 
 
 def _build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
-    defaults = defaults or {}
+    defaults = dict(defaults or {})
+    for key in (CONF_IMPORT_PROFILE, CONF_EXPORT_PROFILE):
+        if key in defaults:
+            defaults[key] = normalize_profile(defaults[key])
     return vol.Schema(
         {
             vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME)): str,
@@ -81,6 +88,9 @@ def _build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            vol.Required(
+                CONF_ENABLE_EXPORT, default=defaults.get(CONF_ENABLE_EXPORT, True)
+            ): bool,
             vol.Required(
                 CONF_UPDATE_HOUR,
                 default=int(defaults.get(CONF_UPDATE_HOUR, DEFAULT_UPDATE_HOUR)),
@@ -128,6 +138,9 @@ def _build_options_schema(config_entry: config_entries.ConfigEntry) -> vol.Schem
     return _build_user_schema(
         {
             CONF_NAME: config_entry.title,
+            CONF_ENABLE_EXPORT: config_entry.options.get(
+                CONF_ENABLE_EXPORT, config_entry.data.get(CONF_ENABLE_EXPORT, True)
+            ),
             CONF_EAN: config_entry.data.get(CONF_EAN, ""),
             CONF_CLIENT_ID: config_entry.data.get(CONF_CLIENT_ID, ""),
             CONF_CLIENT_SECRET: config_entry.data.get(CONF_CLIENT_SECRET, ""),
@@ -198,8 +211,9 @@ class EgdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_EAN: user_input[CONF_EAN],
                         CONF_CLIENT_ID: user_input[CONF_CLIENT_ID],
                         CONF_CLIENT_SECRET: user_input[CONF_CLIENT_SECRET],
-                        CONF_IMPORT_PROFILE: user_input[CONF_IMPORT_PROFILE],
-                        CONF_EXPORT_PROFILE: user_input[CONF_EXPORT_PROFILE],
+                        CONF_IMPORT_PROFILE: normalize_profile(user_input[CONF_IMPORT_PROFILE]),
+                        CONF_EXPORT_PROFILE: normalize_profile(user_input[CONF_EXPORT_PROFILE]),
+                        CONF_ENABLE_EXPORT: bool(user_input.get(CONF_ENABLE_EXPORT, True)),
                         CONF_UPDATE_HOUR: int(user_input[CONF_UPDATE_HOUR]),
                         CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
                         CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
@@ -224,14 +238,18 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         defaults = {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
+        for key in (CONF_IMPORT_PROFILE, CONF_EXPORT_PROFILE):
+            if key in defaults:
+                defaults[key] = normalize_profile(defaults[key])
         if user_input is not None and not _profiles_match(user_input):
             errors["base"] = "mixed_measurement_types"
         if user_input is not None and not errors:
             return self.async_create_entry(
                 title="",
                 data={
-                    CONF_IMPORT_PROFILE: user_input[CONF_IMPORT_PROFILE],
-                    CONF_EXPORT_PROFILE: user_input[CONF_EXPORT_PROFILE],
+                    CONF_IMPORT_PROFILE: normalize_profile(user_input[CONF_IMPORT_PROFILE]),
+                    CONF_EXPORT_PROFILE: normalize_profile(user_input[CONF_EXPORT_PROFILE]),
+                    CONF_ENABLE_EXPORT: bool(user_input.get(CONF_ENABLE_EXPORT, True)),
                     CONF_UPDATE_HOUR: int(user_input[CONF_UPDATE_HOUR]),
                     CONF_UPDATE_MINUTE: int(user_input[CONF_UPDATE_MINUTE]),
                     CONF_REVALIDATE_DAYS: int(user_input[CONF_REVALIDATE_DAYS]),
@@ -262,6 +280,9 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlow):
                             mode=selector.SelectSelectorMode.DROPDOWN,
                         )
                     ),
+                    vol.Required(
+                        CONF_ENABLE_EXPORT, default=defaults.get(CONF_ENABLE_EXPORT, True)
+                    ): bool,
                     vol.Required(
                         CONF_UPDATE_HOUR,
                         default=int(defaults.get(CONF_UPDATE_HOUR, DEFAULT_UPDATE_HOUR)),
