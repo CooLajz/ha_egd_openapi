@@ -26,6 +26,7 @@ class _RecordingClient(EgdApiClient):
     """API client test double recording requested chunks."""
 
     def __init__(self) -> None:
+        super().__init__(session=None, client_id="test", client_secret="test")
         self.chunks: list[tuple[datetime, datetime, int]] = []
 
     async def _async_get_profile_data_chunk(
@@ -45,6 +46,7 @@ class _ResponseShapeClient(EgdApiClient):
     """API client test double returning one raw response payload."""
 
     def __init__(self, payload) -> None:
+        super().__init__(session=None, client_id="test", client_secret="test")
         self.payload = payload
 
     async def _async_request_profile_data(

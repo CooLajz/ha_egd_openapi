@@ -31,6 +31,7 @@ from .const import (
     ATTR_LAST_UPDATE_UTC,
     ATTR_LAST_VALID_EXPORT_TS,
     ATTR_LAST_VALID_IMPORT_TS,
+    C1_PROFILES,
     CONF_EAN,
     CONF_ENABLE_DIAGNOSTICS,
     CONF_EXPORT_PROFILE,
@@ -55,7 +56,7 @@ PROFILE_MIN_DATES: dict[str, date] = {
     "ISQ2": date(2024, 7, 1),
 }
 
-# Návod EG.D doporučuje zapisovat jen standardně platné A/B hodnoty.
+# Standard valid readings from the A/B and C1 APIs.
 ALLOWED_STATUSES = {"IU012", "W"}
 
 
@@ -129,6 +130,36 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
         """Load persisted state."""
         self._persisted = await self._store.async_load() or {}
         self._persisted.setdefault(DIAGNOSTICS_EVENTS_KEY, [])
+        for direction, option, complete_key, start_key, valid_key, status_key in (
+            (
+                "import", CONF_IMPORT_PROFILE, self._IMPORT_CACHE_COMPLETE_KEY,
+                self._IMPORT_ACCESSIBLE_START_KEY, ATTR_LAST_VALID_IMPORT_TS,
+                ATTR_LAST_IMPORT_STATUS,
+            ),
+            (
+                "export", CONF_EXPORT_PROFILE, self._EXPORT_CACHE_COMPLETE_KEY,
+                self._EXPORT_ACCESSIBLE_START_KEY, ATTR_LAST_VALID_EXPORT_TS,
+                ATTR_LAST_EXPORT_STATUS,
+            ),
+        ):
+            profile = self.config_entry.options.get(option, self.config_entry.data[option])
+            previous_profile = self._persisted.get(option)
+            # Older stores predate C1 and have no profile fingerprint.
+            changed = previous_profile != profile and (
+                previous_profile is not None or profile in C1_PROFILES
+            )
+            self._persisted[option] = profile
+            if changed:
+                for key in (
+                    complete_key, start_key, valid_key, status_key,
+                    ATTR_NEXT_SYNC_ATTEMPT_UTC, ATTR_LAST_API_SYNC_UTC,
+                ):
+                    self._persisted.pop(key, None)
+                # Keep cached hourly values and Recorder statistics. Full
+                # revalidation replaces overlapping hours instead of adding them.
+                self._record_diagnostic_event(
+                    "info", "profile_changed", {"direction": direction, "profile": profile}
+                )
         self.data = self._build_state_from_persisted()
 
     def should_retry_refresh(self) -> bool:

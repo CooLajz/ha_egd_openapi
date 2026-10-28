@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "EG.D OpenAPI",
-        "description": "Enter your EG.D OpenAPI credentials.",
+        "description": "Enter your EG.D OpenAPI credentials. For C1 metering, select C1 (kWh) for both profiles. For A/B metering, keep the corresponding A/B profiles.",
         "data": {
           "name": "Name",
           "ean": "EAN metering point",
@@ -20,7 +20,8 @@
     },
     "error": {
       "cannot_connect": "Failed to connect to the API.",
-      "invalid_auth": "Invalid authentication credentials."
+      "invalid_auth": "Invalid authentication credentials.",
+      "mixed_measurement_types": "Select the same metering type (A/B or C1) for both import and export."
     },
     "abort": {
       "already_configured": "This EAN is already configured."
@@ -37,8 +38,12 @@
           "update_minute": "Daily sync minute",
           "revalidate_days": "Days to revalidate",
           "enable_diagnostics": "Collect diagnostic data"
-        }
+        },
+        "description": "Select profiles matching your metering type. For C1, select C1 (kWh) for both import and export. Cumulative daily meter registers are not imported."
       }
+    },
+    "error": {
+      "mixed_measurement_types": "Select the same metering type (A/B or C1) for both import and export."
     }
   },
   "entity": {

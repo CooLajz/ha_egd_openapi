@@ -26,6 +26,12 @@ DEFAULT_ENABLE_DIAGNOSTICS = False
 
 OAUTH_URL = "https://idm.distribuce24.cz/oauth/token"
 DATA_URL = "https://data.distribuce24.cz/rest/spotreby"
+C1_DATA_URL = "https://data.distribuce24.cz/rest/c/spotreby"
+# Interval energies for the whole metering point, not cumulative daily registers.
+C1_IMPORT_PROFILE = "0.0.2.4.1.2.12.0.0.0.0.0.0.0.0.3.72.0"
+C1_EXPORT_PROFILE = "0.0.2.4.19.2.12.0.0.0.0.0.0.0.0.3.72.0"
+C1_PROFILES = frozenset({C1_IMPORT_PROFILE, C1_EXPORT_PROFILE})
+C1_DATA_SOURCE = "ODBERNE_MISTO"
 STATUS_VALID = "IU012"
 
 STORE_VERSION = 1

@@ -158,7 +158,8 @@ def test_store_error_state_updates_diagnostic_persisted_values() -> None:
 
     assert coordinator._persisted[ATTR_SYNC_STATUS] == "error"  # noqa: SLF001
     assert coordinator._persisted[ATTR_LAST_ERROR] == "Boom"  # noqa: SLF001
-    assert coordinator._persisted["last_api_sync_utc"].endswith("Z")  # noqa: SLF001
+    assert "last_api_sync_utc" not in coordinator._persisted  # noqa: SLF001
+    assert coordinator._persisted["last_check_finished_utc"].endswith("Z")  # noqa: SLF001
 
 
 def test_did_timestamp_advance_only_when_value_moves_forward() -> None:

@@ -54,6 +54,8 @@ def _build_state() -> EnergyState:
         last_check_finished_utc="2026-04-12T06:00:00Z",
         next_sync_attempt_utc="2026-04-12T16:17:00Z",
         next_sync_reason="scheduled_daily",
+        last_manual_refresh_utc=None,
+        last_manual_refresh_result=None,
     )
 
 

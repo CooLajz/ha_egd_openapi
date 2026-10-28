@@ -12,12 +12,28 @@
   <a href="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml">
     <img src="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml/badge.svg" alt="Hassfest validation">
   </a>
-  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version 1.0.0">
+  <img src="https://img.shields.io/badge/version-1.1.0--beta.1-orange" alt="Version 1.1.0-beta.1">
 </p>
 
 # EG.D OpenAPI pro Home Assistant
 
 Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D OpenAPI** a importuje je do statistik Home Assistantu jako kumulativní hodnoty energie. Integrace je vhodná pro uživatele s chytrým měřením u EG.D, kteří chtějí mít spotřebu a dodávku elektřiny přímo v Energy dashboardu, statistikách a automatizacích.
+
+## Testovací podpora měření C1
+
+Větev `test/c1-support`, verze `1.1.0-beta.1`, přidává podporu měření C1 podle [novějšího oficiálního návodu EG.D](https://www.egd.cz/sites/default/files/2025-12/uzivatelsky_navod_openapi_abc_0.pdf). Automatické testy ověřují požadavky, zpracování odpovědí a přípravu statistik. Provoz proti skutečnému účtu C1 ani testovacímu prostředí EG.D zatím ověřen nebyl.
+
+Po instalaci testovacího vydání a restartu Home Assistantu:
+
+1. Otevřete nastavení integrace EG.D OpenAPI.
+2. Pro měření C1 zvolte **C1 (kWh)** u profilu spotřeby i přetoků. Pro měření A/B ponechte příslušné profily A/B.
+3. Zapněte sběr diagnostických dat a uložte nastavení.
+4. Vyčkejte na dokončení úvodního načtení. Další pokus můžete vyvolat akcí `ha_egd_openapi.force_refresh`.
+5. Zkontrolujte spotřebu a případně stáhněte diagnostiku; před jejím zveřejněním ověřte anonymizaci přístupových údajů a EAN.
+
+C1 používá jiné rozhraní a jiné kódy profilů než A/B. Integrace pro C1 načítá **čtvrthodinové energie celého odběrného místa** (`zdrojDat=ODBERNE_MISTO`). Denní kumulativní stavy číselníků ani samostatné tarify VT/NT tato verze neimportuje. Dostupnost denních souhrnů v portálu sama nepotvrzuje dostupnost těchto čtvrthodinových dat přes API.
+
+Při změně profilu integrace znovu ověří dostupnou historii. Zachová přitom dosavadní hodinovou cache i statistiky Recorderu a přepíše překrývající se hodiny; historii není nutné mazat. Prázdná odpověď A/B sama nezpůsobí přepnutí na C1.
 
 ## K čemu integrace slouží
 
@@ -94,11 +110,15 @@ Pro konfiguraci jsou aktuálně podporované tyto profily:
 
 - odběr: `ICQ2`, `ICC1`
 - dodávka: `ISQ2`, `ISC1`
+- měření C1: volba `C1 (kWh)` pro odběr i dodávku
 
 Poznámka k převodu hodnot:
 
 - profily `ICQ2` a `ISQ2` se používají přímo,
 - profily `ICC1` a `ISC1` integrace převádí na `kWh` dělením čtyřmi.
+- energie C1 jsou již v `kWh` a čtyřmi se nedělí.
+
+Pro C1 se používá `/rest/c/spotreby` a profily energie `0.0.2.4.1.2.12.0.0.0.0.0.0.0.0.3.72.0` (odběr) a `0.0.2.4.19.2.12.0.0.0.0.0.0.0.0.3.72.0` (dodávka). Původní profily A/B nadále používají `/rest/spotreby`.
 
 ## Omezení a specifika EG.D API
 
@@ -224,3 +244,14 @@ Integrace je určená hlavně pro uživatele v ČR, kteří:
 - používají Home Assistant,
 - chtějí dlouhodobě ukládat a vyhodnocovat spotřebu nebo dodávku elektřiny,
 - chtějí data dostat do nativních statistik Home Assistantu bez ručního importu.
+
+## Vývojové ověření
+
+Testy vyžadují Python 3.14 a Home Assistant. Nevyužívají přístupové údaje ani živé API:
+
+```sh
+python -m pip install homeassistant==2026.10.2 pytest pytest-asyncio
+python -m pytest -q
+```
+
+Sada C1 kontroluje směrování požadavků, obnovu tokenu, dokumentovaný formát odpovědi, časová pásma a změnu času, prázdné a chybné odpovědi, duplicitní intervaly, změnu konfigurace i opakovaný import hodinových statistik bez zdvojení spotřeby.

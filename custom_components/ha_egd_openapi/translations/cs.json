@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "EG.D OpenAPI",
-        "description": "Zadej přístupové údaje k EG.D OpenAPI.",
+        "description": "Zadejte přístupové údaje k EG.D OpenAPI. Pro měření C1 zvolte u obou profilů C1 (kWh). Pro měření A/B ponechte odpovídající profily A/B.",
         "data": {
           "name": "Název",
           "ean": "EAN odběrného místa",
@@ -20,7 +20,8 @@
     },
     "error": {
       "cannot_connect": "Nepodařilo se spojit s API.",
-      "invalid_auth": "Neplatné přihlašovací údaje."
+      "invalid_auth": "Neplatné přihlašovací údaje.",
+      "mixed_measurement_types": "Pro spotřebu i přetoky zvolte stejný typ měření (A/B nebo C1)."
     },
     "abort": {
       "already_configured": "Tento EAN už je nakonfigurovaný."
@@ -37,8 +38,12 @@
           "update_minute": "Minuta denní synchronizace",
           "revalidate_days": "Kolik dnů zpětně kontrolovat",
           "enable_diagnostics": "Sbírat diagnostická data"
-        }
+        },
+        "description": "Zvolte profily podle typu Vašeho měření. Pro C1 vyberte u spotřeby i přetoků C1 (kWh). Denní kumulativní stavy číselníků se neimportují."
       }
+    },
+    "error": {
+      "mixed_measurement_types": "Pro spotřebu i přetoky zvolte stejný typ měření (A/B nebo C1)."
     }
   },
   "entity": {

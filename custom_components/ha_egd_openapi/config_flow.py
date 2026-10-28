@@ -12,6 +12,9 @@ from homeassistant.helpers import aiohttp_client, selector
 
 from .api import EgdApiClient, EgdApiError, EgdAuthError
 from .const import (
+    C1_EXPORT_PROFILE,
+    C1_IMPORT_PROFILE,
+    C1_PROFILES,
     CONF_CLIENT_ID,
     CONF_ENABLE_DIAGNOSTICS,
     CONF_CLIENT_SECRET,
@@ -31,8 +34,23 @@ from .const import (
     DOMAIN,
 )
 
-IMPORT_OPTIONS = ["ICQ2", "ICC1"]
-EXPORT_OPTIONS = ["ISQ2", "ISC1"]
+IMPORT_OPTIONS = [
+    {"value": "ICQ2", "label": "A/B – ICQ2 (kWh)"},
+    {"value": "ICC1", "label": "A/B – ICC1 (kW)"},
+    {"value": C1_IMPORT_PROFILE, "label": "C1 (kWh)"},
+]
+EXPORT_OPTIONS = [
+    {"value": "ISQ2", "label": "A/B – ISQ2 (kWh)"},
+    {"value": "ISC1", "label": "A/B – ISC1 (kW)"},
+    {"value": C1_EXPORT_PROFILE, "label": "C1 (kWh)"},
+]
+
+
+def _profiles_match(data: dict[str, Any]) -> bool:
+    """Both directions must use the same measurement API."""
+    return (data[CONF_IMPORT_PROFILE] in C1_PROFILES) == (
+        data[CONF_EXPORT_PROFILE] in C1_PROFILES
+    )
 
 
 def _build_user_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
@@ -158,6 +176,12 @@ class EgdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            if not _profiles_match(user_input):
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=_build_user_schema(user_input),
+                    errors={"base": "mixed_measurement_types"},
+                )
             try:
                 await _validate_input(self.hass, user_input)
             except EgdAuthError:
@@ -191,14 +215,18 @@ class EgdConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
-        return EgdOptionsFlowHandler(config_entry)
+        return EgdOptionsFlowHandler()
 
 
-class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
+class EgdOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle EG.D options."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
-        if user_input is not None:
+        errors: dict[str, str] = {}
+        defaults = {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
+        if user_input is not None and not _profiles_match(user_input):
+            errors["base"] = "mixed_measurement_types"
+        if user_input is not None and not errors:
             return self.async_create_entry(
                 title="",
                 data={
@@ -213,16 +241,12 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
 
         return self.async_show_form(
             step_id="init",
+            errors=errors,
             data_schema=vol.Schema(
                 {
                     vol.Required(
                         CONF_IMPORT_PROFILE,
-                        default=self.config_entry.options.get(
-                            CONF_IMPORT_PROFILE,
-                            self.config_entry.data.get(
-                                CONF_IMPORT_PROFILE, DEFAULT_IMPORT_PROFILE
-                            ),
-                        ),
+                        default=defaults.get(CONF_IMPORT_PROFILE, DEFAULT_IMPORT_PROFILE),
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=IMPORT_OPTIONS,
@@ -231,12 +255,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                     ),
                     vol.Required(
                         CONF_EXPORT_PROFILE,
-                        default=self.config_entry.options.get(
-                            CONF_EXPORT_PROFILE,
-                            self.config_entry.data.get(
-                                CONF_EXPORT_PROFILE, DEFAULT_EXPORT_PROFILE
-                            ),
-                        ),
+                        default=defaults.get(CONF_EXPORT_PROFILE, DEFAULT_EXPORT_PROFILE),
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=EXPORT_OPTIONS,
@@ -245,14 +264,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                     ),
                     vol.Required(
                         CONF_UPDATE_HOUR,
-                        default=int(
-                            self.config_entry.options.get(
-                                CONF_UPDATE_HOUR,
-                                self.config_entry.data.get(
-                                    CONF_UPDATE_HOUR, DEFAULT_UPDATE_HOUR
-                                ),
-                            )
-                        ),
+                        default=int(defaults.get(CONF_UPDATE_HOUR, DEFAULT_UPDATE_HOUR)),
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=0,
@@ -263,14 +275,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                     ),
                     vol.Required(
                         CONF_UPDATE_MINUTE,
-                        default=int(
-                            self.config_entry.options.get(
-                                CONF_UPDATE_MINUTE,
-                                self.config_entry.data.get(
-                                    CONF_UPDATE_MINUTE, DEFAULT_UPDATE_MINUTE
-                                ),
-                            )
-                        ),
+                        default=int(defaults.get(CONF_UPDATE_MINUTE, DEFAULT_UPDATE_MINUTE)),
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=0,
@@ -281,14 +286,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                     ),
                     vol.Required(
                         CONF_REVALIDATE_DAYS,
-                        default=int(
-                            self.config_entry.options.get(
-                                CONF_REVALIDATE_DAYS,
-                                self.config_entry.data.get(
-                                    CONF_REVALIDATE_DAYS, DEFAULT_REVALIDATE_DAYS
-                                ),
-                            )
-                        ),
+                        default=int(defaults.get(CONF_REVALIDATE_DAYS, DEFAULT_REVALIDATE_DAYS)),
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=1,
@@ -300,13 +298,7 @@ class EgdOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
                     vol.Required(
                         CONF_ENABLE_DIAGNOSTICS,
                         default=bool(
-                            self.config_entry.options.get(
-                                CONF_ENABLE_DIAGNOSTICS,
-                                self.config_entry.data.get(
-                                    CONF_ENABLE_DIAGNOSTICS,
-                                    DEFAULT_ENABLE_DIAGNOSTICS,
-                                ),
-                            )
+                            defaults.get(CONF_ENABLE_DIAGNOSTICS, DEFAULT_ENABLE_DIAGNOSTICS)
                         ),
                     ): bool,
                 }
