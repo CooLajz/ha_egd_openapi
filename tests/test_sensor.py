@@ -5,13 +5,15 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 pytest.importorskip("homeassistant")
 from homeassistant.components.sensor import SensorStateClass
 
-from custom_components.ha_egd_openapi.const import CONF_EAN
+from custom_components.ha_egd_openapi import sensor as sensor_module
+from custom_components.ha_egd_openapi.const import CONF_EAN, DOMAIN
 from custom_components.ha_egd_openapi.coordinator import EnergyState
 from custom_components.ha_egd_openapi.sensor import EgdEnergySensor, SENSORS
 
@@ -19,9 +21,10 @@ from custom_components.ha_egd_openapi.sensor import EgdEnergySensor, SENSORS
 class _FakeCoordinator:
     """Minimal coordinator stub for entity tests."""
 
-    def __init__(self, state: EnergyState) -> None:
+    def __init__(self, state: EnergyState, *, export_enabled: bool = True) -> None:
         self.data = state
         self.last_update_success = True
+        self.export_enabled = export_enabled
 
     def async_add_listener(self, update_callback):
         """Match coordinator listener API."""
@@ -120,3 +123,37 @@ def test_all_diagnostic_sensors_are_disabled_by_default() -> None:
     for description in SENSORS:
         if description.key in diagnostic_keys:
             assert description.entity_registry_enabled_default is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("export_enabled", [True, False])
+@pytest.mark.parametrize("existing_entity", [None, "sensor.prejmenovana_dodavka"])
+async def test_sensor_setup_respects_export_option_and_cleans_up_previous_entity(
+    monkeypatch, export_enabled, existing_entity
+):
+    entry = _build_entry()
+    coordinator = _FakeCoordinator(_build_state(), export_enabled=export_enabled)
+    hass = SimpleNamespace(data={DOMAIN: {entry.entry_id: coordinator}})
+    registry = MagicMock()
+    registry.async_get_entity_id.return_value = existing_entity
+    monkeypatch.setattr(sensor_module.er, "async_get", lambda hass: registry)
+    add_entities = MagicMock()
+
+    await sensor_module.async_setup_entry(hass, entry, add_entities)
+
+    sensors = add_entities.call_args.args[0]
+    keys = {sensor.entity_description.key for sensor in sensors}
+    assert "total_import" in keys
+    assert ("total_export" in keys) is export_enabled
+    assert {"sync_status", "last_api_sync", "next_sync_attempt"} <= keys
+    if export_enabled:
+        registry.async_get_entity_id.assert_not_called()
+        registry.async_remove.assert_not_called()
+    else:
+        registry.async_get_entity_id.assert_called_once_with(
+            "sensor", DOMAIN, f"{entry.entry_id}_total_export"
+        )
+        if existing_entity:
+            registry.async_remove.assert_called_once_with(existing_entity)
+        else:
+            registry.async_remove.assert_not_called()

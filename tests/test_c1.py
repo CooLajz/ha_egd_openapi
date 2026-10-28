@@ -308,6 +308,52 @@ async def test_c1_refresh_imports_kwh_once_and_respects_disabled_export(
     writer.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_disabling_export_skips_cached_statistics_and_can_be_reenabled(monkeypatch):
+    coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
+    coordinator.hass = SimpleNamespace()
+    coordinator.config_entry = _entry()
+    coordinator._persisted = {}
+    coordinator._store = SimpleNamespace(async_save=AsyncMock())
+    coordinator.client = _PayloadClient(
+        {C1_IMPORT_PROFILE: _payload(), C1_EXPORT_PROFILE: _payload(C1_EXPORT_PROFILE)}
+    )
+    monkeypatch.setattr(coordinator, "_hard_min_for_profile", lambda profile, latest: START)
+    monkeypatch.setattr(coordinator, "_get_latest_available_utc", lambda: END)
+    writer = AsyncMock()
+    monkeypatch.setattr(coordinator_module, "async_import_external_statistics", writer)
+    await coordinator._async_refresh_energy_state()
+    cached_export = deepcopy(coordinator._persisted["export_hourly_deltas"])
+
+    coordinator.config_entry.options[CONF_ENABLE_EXPORT] = False
+    coordinator.client.requests.clear()
+    coordinator.client.payloads[C1_EXPORT_PROFILE]["data"][0]["value"] = 0.5
+    merge = MagicMock(wraps=coordinator._merge_statistics)
+    monkeypatch.setattr(coordinator, "_merge_statistics", merge)
+    writer.reset_mock()
+
+    state = await coordinator._async_refresh_energy_state()
+
+    assert state.sync_status == "ok"
+    assert state.total_import_kwh == 0.038
+    writer.assert_not_awaited()
+    assert [call.kwargs["cache_key"] for call in merge.call_args_list] == [
+        "import_hourly_deltas"
+    ]
+    assert all(r["profile"] == C1_IMPORT_PROFILE for r in coordinator.client.requests)
+    assert coordinator._persisted["export_hourly_deltas"] == cached_export
+
+    coordinator.config_entry.options[CONF_ENABLE_EXPORT] = True
+    state = await coordinator._async_refresh_energy_state()
+
+    assert state.total_export_kwh == 0.525
+    writer.assert_awaited_once()
+    assert writer.await_args.kwargs["statistic_id"].endswith("_export")
+    assert writer.await_args.kwargs["rows"] == [
+        {"start": START, "state": 0.525, "sum": 0.525}
+    ]
+
+
 def test_c1_dst_day_contains_100_distinct_quarters_and_preserves_energy():
     coordinator = EgdDataUpdateCoordinator.__new__(EgdDataUpdateCoordinator)
     start = datetime(2026, 10, 24, 22, tzinfo=timezone.utc)

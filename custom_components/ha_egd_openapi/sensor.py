@@ -15,6 +15,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -105,7 +106,22 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: EgdDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([EgdEnergySensor(coordinator, entry, description) for description in SENSORS])
+    descriptions = SENSORS
+    if not coordinator.export_enabled:
+        # Clean up the entity from an earlier setup, including renamed entities.
+        # Recorder history is retained when removing an entity registry entry.
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_total_export"
+        )
+        if entity_id is not None:
+            registry.async_remove(entity_id)
+        descriptions = tuple(
+            description for description in SENSORS if description.key != "total_export"
+        )
+    async_add_entities(
+        [EgdEnergySensor(coordinator, entry, description) for description in descriptions]
+    )
 
 
 class EgdEnergySensor(CoordinatorEntity[EgdDataUpdateCoordinator], SensorEntity):

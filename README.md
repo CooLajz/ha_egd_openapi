@@ -12,7 +12,7 @@
   <a href="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml">
     <img src="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml/badge.svg" alt="Hassfest validation">
   </a>
-  <img src="https://img.shields.io/badge/version-1.1.0--beta.3-orange" alt="Version 1.1.0-beta.3">
+  <img src="https://img.shields.io/badge/version-1.1.0--beta.4-orange" alt="Version 1.1.0-beta.4">
 </p>
 
 # EG.D OpenAPI pro Home Assistant
@@ -21,7 +21,9 @@ Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D 
 
 ## Testovací podpora měření C1
 
-Větev `test/c1-support`, verze `1.1.0-beta.3`, podporuje měření C1 přes sjednocené rozhraní `/rest/spotreby` a profily `DCQC` (odběr) a `DSQC` (dodávka). Požadavky byly ověřeny na skutečném odběrném místě C1 a denní součty přesně porovnány s Distribucí24, včetně dne změny času. Zápis do Recorderu ověřují automatické testy; nasazení této verze do běžícího Home Assistantu se ověřuje samostatně.
+Větev `test/c1-support`, verze `1.1.0-beta.4`, podporuje měření C1 přes sjednocené rozhraní `/rest/spotreby` a profily `DCQC` (odběr) a `DSQC` (dodávka). Požadavky byly ověřeny na skutečném odběrném místě C1 a denní součty přesně porovnány s Distribucí24, včetně dne změny času. Načítání předchozí verze beta.3 bylo potvrzeno také v běžícím Home Assistantu. Zápis do Recorderu ověřují automatické testy; nasazení této verze do běžícího Home Assistantu se ověřuje samostatně.
+
+Verze beta.4 při vypnuté volbě **Načítat dodávku do sítě** nevytváří senzor celkové dodávky ani nové statistiky dodávky. Pokud senzor existoval z dřívější konfigurace, při opětovném načtení integrace jej odebere z registru entit. Již uložená historie dodávky se zachová a po opětovném zapnutí lze v načítání pokračovat.
 
 Verze beta.3 opravuje první načítání historie: hledání dostupného období i samotný import používají stejný limit tří let od aktuálního času s bezpečnostní rezervou a zaokrouhlením na čtvrthodinu. Kontrola dostupnosti načítá jen první stránku, aby zbytečně nestahovala celý den po jednotlivých záznamech. Pro všechny profily A/B i C1 integrace ověřuje úplnost stránek, duplicity, vrácený profil a jednotky; při neúplné nebo rozporné odpovědi ohlásí chybu a neimportuje částečně stažený profil.
 
@@ -29,7 +31,7 @@ Po instalaci testovacího vydání a restartu Home Assistantu:
 
 1. Otevřete nastavení integrace EG.D OpenAPI.
 2. Pro měření C1 zvolte **C1 (kWh)** u profilu spotřeby. Pokud načítáte také dodávku, zvolte C1 i u profilu přetoků. Pro měření A/B ponechte příslušné profily A/B.
-3. Pokud odběrné místo nemá data o dodávce do sítě, vypněte **Načítat dodávku do sítě**. Chybějící řada přetoků pak nebude způsobovat stav čekání na data ani další požadavky na API.
+3. Pokud odběrné místo nemá data o dodávce do sítě, vypněte **Načítat dodávku do sítě**. Integrace nevytvoří senzor ani nové statistiky dodávky. Chybějící řada přetoků pak nebude způsobovat stav čekání na data ani další požadavky na API.
 4. Zapněte sběr diagnostických dat a uložte nastavení. Vyčkejte na dokončení úvodního načtení; další pokus můžete vyvolat akcí `ha_egd_openapi.force_refresh`.
 5. Zkontrolujte spotřebu a případně stáhněte diagnostiku; před jejím zveřejněním ověřte anonymizaci přístupových údajů a EAN.
 

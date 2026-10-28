@@ -361,16 +361,23 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             accessible_start_key=self._IMPORT_ACCESSIBLE_START_KEY,
             hourly_deltas=import_hourly,
         )
-        total_export, export_stats = self._merge_statistics(
-            cache_key=self._EXPORT_CACHE_KEY,
-            cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
-            persisted_total_key="total_export_kwh",
-            fetched_from=export_from,
-            latest_available_utc=latest_available_utc,
-            profile=export_profile,
-            accessible_start_key=self._EXPORT_ACCESSIBLE_START_KEY,
-            hourly_deltas=export_hourly,
-        )
+        if self.export_enabled:
+            total_export, export_stats = self._merge_statistics(
+                cache_key=self._EXPORT_CACHE_KEY,
+                cache_complete_key=self._EXPORT_CACHE_COMPLETE_KEY,
+                persisted_total_key="total_export_kwh",
+                fetched_from=export_from,
+                latest_available_utc=latest_available_utc,
+                profile=export_profile,
+                accessible_start_key=self._EXPORT_ACCESSIBLE_START_KEY,
+                hourly_deltas=export_hourly,
+            )
+        else:
+            total_export = self._get_persisted_total(
+                persisted_total_key="total_export_kwh",
+                cache_key=self._EXPORT_CACHE_KEY,
+            )
+            export_stats = []
 
         if import_stats:
             await async_import_external_statistics(
