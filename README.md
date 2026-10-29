@@ -78,6 +78,8 @@ Po úspěšném nastavení vzniknou čtyři senzorové entity:
 
 Entity `Celkový odběr` a `Celková dodávka` mají jednotku `kWh` a jsou určené pro práci s energií v Home Assistantu. Entity `Stav synchronizace` a `Poslední úspěšná synchronizace` jsou diagnostické.
 
+Celkové energetické senzory používají stavovou třídu `total` bez `last_reset`. Oprava historických měření směrem dolů se tak započítá jako korekce součtu, nikoli jako reset elektroměru. Tato změna sama zpětně neopravuje dříve uložené statistiky senzorů.
+
 Kromě hlavní hodnoty obsahují i doplňkové atributy, například:
 
 - `ean`
@@ -109,6 +111,8 @@ Chování synchronizace:
 - při prvním spuštění se snaží načíst co největší dostupnou historii v rámci limitů EG.D,
 - při dalších spuštěních kontroluje jen poslední konfigurovatelné období zpětně,
 - pokud v době plánované synchronizace ještě nejsou k dispozici nejnovější data, průběžný watchdog zkusí načtení zopakovat později.
+
+Profily A/B i C1 načítají poslední dostupný den včetně intervalu `23:45`. Horní hranice požadavku je `23:59:59.999` místního času, převedená do UTC; nedosáhne tak dnešní půlnoci, kterou EG.D odmítá. U A/B zpětná kontrola začíná místní půlnocí, takže i při nastavení jednoho dne zahrne celý den, včetně dnů změny letního a zimního času. Spodní hranice požadavku se posouvá o jednu milisekundu před první požadovaný interval, protože API samotnou hranici nezahrnuje. Načtení závisí na tom, zda již EG.D data zveřejnilo.
 
 Importují se pouze záznamy se stavem, který integrace považuje za validní pro statistické zpracování.
 

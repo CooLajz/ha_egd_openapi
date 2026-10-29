@@ -18,7 +18,7 @@ def test_profile_to_parameter_uses_exclusive_interval_boundary() -> None:
         api._format_egd_profile_to(  # noqa: SLF001
             datetime(2026, 5, 20, 21, 45, tzinfo=timezone.utc)
         )
-        == "2026-05-20T22:00:00.000Z"
+        == "2026-05-20T21:59:59.999Z"
     )
 
 

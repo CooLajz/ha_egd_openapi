@@ -145,7 +145,7 @@ def test_latest_available_timestamp_avoids_today_validation_boundary(
         5,
         22,
         21,
-        30,
+        45,
         tzinfo=timezone.utc,
     )
 

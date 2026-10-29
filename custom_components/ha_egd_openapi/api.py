@@ -25,19 +25,23 @@ INTERVAL_LENGTH = timedelta(minutes=15)
 MILLISECOND = timedelta(milliseconds=1)
 
 
-def _format_egd_timestamp(value: datetime) -> str:
-    """Format a timestamp for EG.D query parameters."""
-    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+def _format_egd_profile_from(value: datetime) -> str:
+    """Enclose the first requested slot: live A/B and C1 exclude both bounds."""
+    return (value.astimezone(timezone.utc) - MILLISECOND).isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
 
 
 def _format_egd_profile_to(value: datetime) -> str:
     """Format EG.D profile upper bound.
 
-    The API treats the `to` parameter as an exclusive interval boundary. Add
-    one quarter-hour so callers can keep using `to_dt` as the last requested
-    measurement timestamp.
+    Enclose the last requested measurement timestamp, stopping one millisecond
+    before the next interval. In particular, yesterday's 23:45 slot must not
+    produce today's midnight: EG.D rejects that date even as an upper bound.
     """
-    return _format_egd_timestamp(value + INTERVAL_LENGTH)
+    return (
+        value.astimezone(timezone.utc) + INTERVAL_LENGTH - MILLISECOND
+    ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _safe_three_year_cap(reference: datetime | None = None) -> datetime:
@@ -219,20 +223,11 @@ class EgdApiClient:
         params = {
             "ean": ean,
             "profile": profile,
-            "from": _format_egd_timestamp(from_dt),
+            "from": _format_egd_profile_from(from_dt),
             "to": _format_egd_profile_to(to_dt),
             "pageStart": str(page_start),
             "pageSize": str(page_size),
         }
-        if is_c1:
-            # Live DCQC responses exclude both bounds. Enclose the requested
-            # slots while keeping the upper bound before today's local midnight.
-            params["from"] = (from_dt.astimezone(timezone.utc) - MILLISECOND).isoformat(
-                timespec="milliseconds"
-            ).replace("+00:00", "Z")
-            params["to"] = (
-                to_dt.astimezone(timezone.utc) + INTERVAL_LENGTH - MILLISECOND
-            ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         _LOGGER.debug(
             "Requesting EG.D data for EAN %s profile %s from %s to %s (pageStart=%s pageSize=%s)",
             ean,

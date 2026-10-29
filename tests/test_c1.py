@@ -98,12 +98,8 @@ async def test_unified_request_routing_and_interval_boundaries(profile):
     assert "zdrojDat" not in params
     assert params["pageStart"] == "1" and params["pageSize"] == "3000"
     assert params["profile"] == profile
-    if profile in (C1_IMPORT_PROFILE, C1_EXPORT_PROFILE):
-        assert params["from"] == "2026-10-26T23:59:59.999Z"
-        assert params["to"] == "2026-10-27T23:59:59.999Z"
-    else:
-        assert params["from"] == "2026-10-27T00:00:00.000Z"
-        assert params["to"] == "2026-10-28T00:00:00.000Z"
+    assert params["from"] == "2026-10-26T23:59:59.999Z"
+    assert params["to"] == "2026-10-27T23:59:59.999Z"
 
 
 @pytest.mark.asyncio

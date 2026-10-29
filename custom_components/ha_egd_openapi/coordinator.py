@@ -588,7 +588,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                     },
                 )
                 return accessible_start
-            start = max(self._get_revalidation_start(latest_available_utc), hard_min)
+            start = max(self._get_revalidation_start(latest_available_utc, profile), hard_min)
             self._record_diagnostic_event(
                 "debug",
                 "start_timestamp_partial_cache",
@@ -600,7 +600,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             )
             return start
 
-        revalidation_start = self._get_revalidation_start(latest_available_utc)
+        revalidation_start = self._get_revalidation_start(latest_available_utc, profile)
         start = max(revalidation_start, hard_min)
         self._record_diagnostic_event(
             "debug",
@@ -1070,7 +1070,7 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
             )
         )
 
-    def _get_revalidation_start(self, latest_available_utc: datetime) -> datetime:
+    def _get_revalidation_start(self, latest_available_utc: datetime, profile: str) -> datetime:
         """Return start of rolling revalidation window in UTC."""
         revalidate_days = max(
             1,
@@ -1081,6 +1081,15 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
                 )
             ),
         )
+        if profile not in C1_PROFILES:
+            # A/B windows cover complete local days, including the early hours
+            # that fall on the previous UTC date. Use local calendar dates for
+            # 23/25-hour daylight-saving days, then convert the bound to UTC.
+            latest_local = dt_util.as_local(latest_available_utc)
+            start_date = latest_local.date() - timedelta(days=revalidate_days - 1)
+            return datetime.combine(
+                start_date, time(0, 0), tzinfo=latest_local.tzinfo
+            ).astimezone(timezone.utc)
         start_date = latest_available_utc.date() - timedelta(days=revalidate_days - 1)
         return datetime.combine(start_date, time(0, 0), tzinfo=timezone.utc)
 
@@ -1151,17 +1160,13 @@ class EgdDataUpdateCoordinator(DataUpdateCoordinator[EnergyState]):
     def _get_latest_available_utc(self) -> datetime:
         """Return latest allowed EG.D quarter-hour timestamp.
 
-        C1 bounds include the final 23:45 slot without crossing midnight.
-        A/B retains its conservative 23:30 boundary and rolling revalidation.
+        A/B and C1 include the final 23:45 slot. The API client encloses it
+        with an upper bound of 23:59:59.999, without crossing today's midnight.
         """
         now_local = dt_util.now()
-        profile = self.config_entry.options.get(
-            CONF_IMPORT_PROFILE, self.config_entry.data.get(CONF_IMPORT_PROFILE, "ICQ2")
-        )
-        latest_minute = 45 if profile in C1_PROFILES else 30
         latest_local = datetime.combine(
             now_local.date() - timedelta(days=1),
-            time(23, latest_minute),
+            time(23, 45),
             tzinfo=now_local.tzinfo,
         )
         return latest_local.astimezone(timezone.utc)

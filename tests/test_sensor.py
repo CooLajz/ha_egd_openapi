@@ -94,17 +94,33 @@ def test_total_import_sensor_keeps_energy_value_and_import_attributes() -> None:
     sensor = _build_sensor("total_import", _build_state())
 
     assert sensor.native_value == 123.456
-    assert sensor.entity_description.state_class is SensorStateClass.TOTAL_INCREASING
+    assert sensor.state_class is SensorStateClass.TOTAL
     assert sensor.extra_state_attributes["last_import_status"] == "IU012"
     assert "last_export_status" not in sensor.extra_state_attributes
 
 
-def test_total_export_sensor_uses_total_increasing_state_class() -> None:
+def test_total_export_sensor_uses_total_state_class() -> None:
     """Export energy sensor should be eligible for long-term statistics."""
     sensor = _build_sensor("total_export", _build_state())
 
     assert sensor.native_value == 78.9
-    assert sensor.entity_description.state_class is SensorStateClass.TOTAL_INCREASING
+    assert sensor.state_class is SensorStateClass.TOTAL
+
+
+@pytest.mark.parametrize("sensor_key", ["total_import", "total_export"])
+def test_energy_corrections_preserve_total_without_starting_a_new_cycle(sensor_key):
+    """Expose corrected totals without a reset marker or a monotonic clamp."""
+    sensor = _build_sensor(sensor_key, _build_state())
+    value_key = sensor.entity_description.value_key
+    original_unique_id = sensor.unique_id
+
+    for value in (100.0, 80.0, 85.0):
+        sensor.coordinator.data = replace(sensor.coordinator.data, **{value_key: value})
+        assert sensor.native_value == value
+        assert sensor.state_class is SensorStateClass.TOTAL
+        assert sensor.last_reset is None
+        assert "last_reset" not in sensor.extra_state_attributes
+        assert sensor.unique_id == original_unique_id
 
 
 def test_next_sync_attempt_sensor_is_timestamp_and_exposes_reason() -> None:
