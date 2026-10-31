@@ -12,7 +12,7 @@
   <a href="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml">
     <img src="https://github.com/CooLajz/ha_egd_openapi/actions/workflows/hassfest.yaml/badge.svg" alt="Hassfest validation">
   </a>
-  <img src="https://img.shields.io/badge/version-1.1.0--beta.4-orange" alt="Version 1.1.0-beta.4">
+  <img src="https://img.shields.io/badge/version-1.1.0--test.1-orange" alt="Version 1.1.0-test.1">
 </p>
 
 # EG.D OpenAPI pro Home Assistant
