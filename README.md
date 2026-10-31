@@ -21,9 +21,9 @@ Custom integrace pro Home Assistant, která načítá naměřená data z **EG.D 
 
 ## Testovací podpora měření C1
 
-Větev `test/c1-support`, verze `1.1.0-beta.4`, podporuje měření C1 přes sjednocené rozhraní `/rest/spotreby` a profily `DCQC` (odběr) a `DSQC` (dodávka). Požadavky byly ověřeny na skutečném odběrném místě C1 a denní součty přesně porovnány s Distribucí24, včetně dne změny času. Načítání C1 bylo potvrzeno také v běžícím Home Assistantu. Zápis do Recorderu a chování volby pro vypnutí dodávky ověřují automatické testy.
+Větev `test/c1-support`, verze `1.1.0-test.1`, podporuje měření C1 přes sjednocené rozhraní `/rest/spotreby` a profily `DCQC` (odběr) a `DSQC` (dodávka). Požadavky byly ověřeny na skutečném odběrném místě C1 a denní součty přesně porovnány s Distribucí24, včetně dne změny času. Načítání C1 bylo potvrzeno také v běžícím Home Assistantu. Zápis do Recorderu a chování volby pro vypnutí dodávky ověřují automatické testy.
 
-Verze beta.4 při vypnuté volbě **Načítat dodávku do sítě** nevytváří senzor celkové dodávky ani nové statistiky dodávky. Pokud senzor existoval z dřívější konfigurace, při opětovném načtení integrace jej odebere z registru entit. Již uložená historie dodávky se zachová a po opětovném zapnutí lze v načítání pokračovat.
+Verze test.1 při vypnuté volbě **Načítat dodávku do sítě** nevytváří senzor celkové dodávky ani nové statistiky dodávky. Pokud senzor existoval z dřívější konfigurace, při opětovném načtení integrace jej odebere z registru entit. Již uložená historie dodávky se zachová a po opětovném zapnutí lze v načítání pokračovat.
 
 Hledání dostupného období i samotný import používají stejný limit tří let od aktuálního času s bezpečnostní rezervou a zaokrouhlením na čtvrthodinu. Kontrola dostupnosti načítá jen první stránku, aby zbytečně nestahovala celý den po jednotlivých záznamech. Pro všechny profily A/B i C1 integrace ověřuje úplnost stránek, duplicity, vrácený profil a jednotky; při neúplné nebo rozporné odpovědi ohlásí chybu a neimportuje částečně stažený profil.
 
