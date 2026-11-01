@@ -20,7 +20,9 @@ AUTHORIZATION_ERROR_FRAGMENT = "nemáte oprávnění na data odběrného místa"
 HISTORY_LIMIT_ERROR_FRAGMENT = "starší než 3 roky"
 VALIDATION_ERROR_FRAGMENT = "validation_error"
 DEFAULT_PAGE_SIZE = 3000
-MAX_PROFILE_CHUNK = timedelta(days=30, hours=23, minutes=45)
+# Successful monthly responses can omit available tail intervals and report a
+# matching (but incomplete) total. Weekly requests returned the missing data.
+MAX_PROFILE_CHUNK = timedelta(days=6, hours=23, minutes=45)
 INTERVAL_LENGTH = timedelta(minutes=15)
 MILLISECOND = timedelta(milliseconds=1)
 
@@ -370,9 +372,8 @@ class EgdApiClient:
     ) -> list[IntervalRecord]:
         """Fetch all pages of profile data.
 
-        EG.D pagination is not reliable for large cold-start windows. Keep each
-        request below the default 3000-row page size so initial imports behave
-        like the rolling revalidation window.
+        EG.D can silently truncate monthly ranges even when pagination totals
+        match. Split both initial history and revalidation into weekly ranges.
         """
         if from_dt.tzinfo is None or to_dt.tzinfo is None:
             raise ValueError("from_dt and to_dt must be timezone-aware")

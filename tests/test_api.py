@@ -79,14 +79,14 @@ async def test_profile_data_fetch_splits_initial_history_into_page_sized_chunks(
         to_dt=to_dt,
     )
 
-    assert len(client.chunks) == 4
+    assert len(client.chunks) == 15
     assert client.chunks[0] == (
         datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
-        datetime(2026, 1, 31, 23, 45, tzinfo=timezone.utc),
+        datetime(2026, 1, 7, 23, 45, tzinfo=timezone.utc),
         api.DEFAULT_PAGE_SIZE,
     )
     assert client.chunks[-1] == (
-        datetime(2026, 4, 4, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 4, 9, 0, 0, tzinfo=timezone.utc),
         datetime(2026, 4, 15, 23, 45, tzinfo=timezone.utc),
         api.DEFAULT_PAGE_SIZE,
     )

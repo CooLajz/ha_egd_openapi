@@ -250,7 +250,7 @@ async def test_first_sync_from_empty_store_recovers_contract_and_imports_statist
     assert all(
         request["from_dt"] >= SAFE_LIMIT for request in coordinator.client.requests
     )
-    assert len(coordinator.client.requests) <= 25
+    assert len(coordinator.client.requests) <= 50
     writer.assert_awaited_once()
     assert writer.await_args.kwargs["rows"][-1]["sum"] == 3
 

@@ -106,6 +106,8 @@ Entita `Poslední úspěšná synchronizace` se aktualizuje pouze tehdy, když i
 
 Integrace stahuje data z EG.D OpenAPI po stránkách a při delším období si požadavky sama rozděluje na menší úseky. Záznamy následně seskupuje do hodinových statistik a ukládá je do Home Assistant Recorderu jako kumulativní energetické řady.
 
+Jeden požadavek zahrnuje nejvýše sedm dní. U měsíčních dotazů může EG.D vrátit úspěšnou odpověď s neúplným koncem období, přestože jsou chybějící intervaly dostupné kratším dotazem. Nastavený počet dnů zpětné kontroly se zachovává; integrace jej stáhne po týdenních úsecích. Již vzniklé mezery v tomto období se po aktualizaci doplní při další synchronizaci bez mazání historie.
+
 Chování synchronizace:
 
 - při prvním spuštění se snaží načíst co největší dostupnou historii v rámci limitů EG.D,

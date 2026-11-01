@@ -159,5 +159,5 @@ async def test_ab_chunks_include_every_boundary_slot_once(profile):
         ean="test", profile=profile, from_dt=start, to_dt=end
     )
     assert [record.timestamp for record in records] == slots
-    assert len(requests) == 2
-    assert requests[0][1] == requests[1][0]
+    assert len(requests) == 5
+    assert all(left[1] == right[0] for left, right in zip(requests, requests[1:]))
